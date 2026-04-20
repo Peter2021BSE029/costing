@@ -6,11 +6,13 @@ This is a full-stack costing system built with Node.js backend, PostgreSQL datab
 
 - ✅ **Database Setup**: PostgreSQL with complete schema for costing system
 - ✅ **Client Management**: Add and view clients with margin tiers
-- ✅ **Job Management**: Create jobs linked to clients
+- ✅ **Job Management**: Create jobs linked to clients with comprehensive cost tracking
+- ✅ **Admin Interface**: Full CRUD operations for materials, machines, and other entities
 - ✅ **Margin Tiers**: Configured for different client types (Government 15%, NGO 20%, Commercial 30%, Internal 0%)
-- ✅ **API Endpoints**: RESTful API for all entities
-- 🔄 **Cost Calculation**: Framework ready for materials, machines, bindings, special processes
-- 🔄 **Reporting**: Structure in place for cost breakdowns and totals
+- ✅ **Cost Calculation**: Complete framework for materials, machines, bindings, special processes
+- ✅ **Quotation Generation**: PDF quotation generation with detailed cost breakdowns
+- ✅ **API Endpoints**: RESTful API for all entities with proper error handling
+- ✅ **Reporting**: Structure in place for cost breakdowns and totals
 
 ## Database Schema
 
@@ -25,6 +27,7 @@ This is a full-stack costing system built with Node.js backend, PostgreSQL datab
 - `special_processes` - Perforation, collating, etc.
 - `job_materials`, `job_machines`, `job_bindings`, `job_special_processes` - Job cost components
 - `job_costs` - Additional costs (design, transport, etc.)
+- `job_additional_costs` - Design, typesetting, storage, transport, overhead costs
 - `system_settings` - VAT (18%) and overhead percentages
 
 ## Setup
@@ -36,7 +39,15 @@ This is a full-stack costing system built with Node.js backend, PostgreSQL datab
 
 2. **Set up PostgreSQL Database:**
    - Install PostgreSQL
-   - Update `.env` with your credentials
+   - Update `.env` with your credentials:
+     ```
+     DB_HOST=localhost
+     DB_PORT=5432
+     DB_NAME=costing_db
+     DB_USER=your_username
+     DB_PASS=your_password
+     PORT=3000
+     ```
    - Run the schema: `psql -U postgres -h localhost -p 5432 -f database/schema.sql`
 
 3. **Start the Application:**
@@ -47,6 +58,63 @@ This is a full-stack costing system built with Node.js backend, PostgreSQL datab
 4. **Open Frontend:**
    - Open `frontend/index.html` in your browser
    - Server runs on `http://127.0.0.1:3000`
+
+## Usage
+
+### Main Application
+- Navigate through the wizard to create costing jobs
+- Save sections individually or complete jobs
+- View recent jobs and generate quotations
+
+### Admin Interface
+- Access `frontend/admin.html` for managing materials and machines
+- Add, edit, and delete materials with unit costs
+- Add, edit, and delete machines with cost per impression
+- All changes are protected by foreign key constraints
+
+### API Endpoints
+- `GET /api/clients` - List all clients
+- `GET /api/jobs` - List all jobs
+- `GET /api/materials` - List all materials
+- `GET /api/machines` - List all machines
+- `POST /api/costing` - Create new costing job
+- `GET /api/costing/quotation/:jobId` - Generate PDF quotation
+- `POST/PUT/DELETE /api/materials/:id` - CRUD operations for materials
+- `POST/PUT/DELETE /api/machines/:id` - CRUD operations for machines
+
+## Technologies Used
+
+- **Backend**: Node.js, Express.js
+- **Database**: PostgreSQL
+- **Frontend**: HTML5, CSS3, JavaScript (ES6+)
+- **PDF Generation**: PDFKit
+- **Styling**: Custom CSS with responsive design
+
+## Project Structure
+
+```
+project/
+├── backend/
+│   ├── routes/
+│   │   ├── costing.js
+│   │   ├── materials.js
+│   │   ├── machines.js
+│   │   └── ...
+│   └── server.js
+├── frontend/
+│   ├── index.html
+│   ├── admin.html
+│   ├── js/
+│   │   ├── app.js
+│   │   └── admin.js
+│   └── css/
+│       └── style.css
+├── database/
+│   ├── schema.sql
+│   └── add_plates.sql
+├── package.json
+└── README.md
+```
 
 ## API Endpoints
 

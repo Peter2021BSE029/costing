@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
+const PDFDocument = require('pdfkit');
 
 // Submit comprehensive costing
 router.post('/', async (req, res) => {
@@ -184,22 +185,220 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Generate quotation PDF (placeholder - will implement later)
+// Generate quotation PDF
 router.get('/quotation/:jobId', async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // For now, return a simple text response
-    // TODO: Implement actual PDF generation
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    // Get job details with client information
+    const jobQuery = `
+      SELECT j.*, c.name as client_name, c.type as client_type, c.address as client_address,
+             c.contact as client_contact, c.email as client_email, mt.margin_percentage
+      FROM jobs j
+      JOIN clients c ON j.client_id = c.id
+      JOIN margin_tiers mt ON c.margin_tier_id = mt.id
+      WHERE j.id = $1
+    `;
+    const jobResult = await pool.query(jobQuery, [jobId]);
+
+    if (jobResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const job = jobResult.rows[0];
+
+    // Get job materials
+    const materialsQuery = `
+      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
+      FROM job_materials jm
+      JOIN materials m ON jm.material_id = m.id
+      WHERE jm.job_id = $1
+    `;
+    const materials = await pool.query(materialsQuery, [jobId]);
+
+    // Get job machines
+    const machinesQuery = `
+      SELECT jm.*, m.name as machine_name
+      FROM job_machines jm
+      JOIN machines m ON jm.machine_id = m.id
+      WHERE jm.job_id = $1
+    `;
+    const machines = await pool.query(machinesQuery, [jobId]);
+
+    // Get job bindings
+    const bindingsQuery = `
+      SELECT jb.*, b.method as binding_name
+      FROM job_bindings jb
+      JOIN bindings b ON jb.binding_id = b.id
+      WHERE jb.job_id = $1
+    `;
+    const bindings = await pool.query(bindingsQuery, [jobId]);
+
+    // Get job special processes
+    const processesQuery = `
+      SELECT jsp.*, sp.name as process_name
+      FROM job_special_processes jsp
+      JOIN special_processes sp ON jsp.special_process_id = sp.id
+      WHERE jsp.job_id = $1
+    `;
+    const processes = await pool.query(processesQuery, [jobId]);
+
+    // Get additional costs
+    const additionalCostsQuery = 'SELECT * FROM job_additional_costs WHERE job_id = $1';
+    const additionalCosts = await pool.query(additionalCostsQuery, [jobId]);
+
+    // Create PDF document
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 50
+    });
+
+    // Set response headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
 
-    // Placeholder PDF content (this would be replaced with actual PDF generation)
-    const pdfContent = `Quotation for Job ${jobId}\n\nThis is a placeholder quotation.\nPDF generation will be implemented.`;
+    // Pipe PDF to response
+    doc.pipe(res);
 
-    res.send(Buffer.from(pdfContent));
+    // Header
+    doc.fontSize(20).text('UGANDA PRINTING AND PUBLISHING CORPORATION', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(16).text('QUOTATION', { align: 'center' });
+    doc.moveDown(2);
+
+    // Quotation details
+    doc.fontSize(12);
+    doc.text(`Quotation No: Q${jobId.toString().padStart(4, '0')}`);
+    doc.text(`Date: ${new Date().toLocaleDateString()}`);
+    doc.moveDown();
+
+    // Client information
+    doc.fontSize(14).text('CLIENT INFORMATION', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(12);
+    doc.text(`Name: ${job.client_name}`);
+    doc.text(`Type: ${job.client_type}`);
+    if (job.client_address) doc.text(`Address: ${job.client_address}`);
+    if (job.client_contact) doc.text(`Contact: ${job.client_contact}`);
+    if (job.client_email) doc.text(`Email: ${job.client_email}`);
+    doc.moveDown();
+
+    // Job details
+    doc.fontSize(14).text('JOB DETAILS', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(12);
+    doc.text(`Job Name: ${job.name}`);
+    if (job.description) doc.text(`Description: ${job.description}`);
+    doc.text(`Quantity: ${job.quantity}`);
+    if (job.page_size) doc.text(`Page Size: ${job.page_size}`);
+    if (job.pages_per_copy) doc.text(`Pages per Copy: ${job.pages_per_copy}`);
+    doc.moveDown();
+
+    // Cost breakdown
+    doc.fontSize(14).text('COST BREAKDOWN', { underline: true });
+    doc.moveDown(0.5);
+
+    let totalCost = 0;
+
+    // Materials
+    if (materials.rows.length > 0) {
+      doc.fontSize(12).text('Materials:', { underline: true });
+      materials.rows.forEach(material => {
+        const subtotal = material.quantity * material.unit_cost;
+        totalCost += subtotal;
+        doc.text(`  ${material.material_name}: ${material.quantity} ${material.unit} @ UGX ${material.unit_cost.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+      });
+      doc.moveDown(0.5);
+    }
+
+    // Machines
+    if (machines.rows.length > 0) {
+      doc.text('Machines:', { underline: true });
+      machines.rows.forEach(machine => {
+        const subtotal = machine.impressions * machine.cost_per_impression;
+        totalCost += subtotal;
+        doc.text(`  ${machine.machine_name}: ${machine.impressions} impressions @ UGX ${machine.cost_per_impression.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+      });
+      doc.moveDown(0.5);
+    }
+
+    // Bindings
+    if (bindings.rows.length > 0) {
+      doc.text('Bindings:', { underline: true });
+      bindings.rows.forEach(binding => {
+        const subtotal = binding.copies * binding.cost_per_copy;
+        totalCost += subtotal;
+        doc.text(`  ${binding.binding_name}: ${binding.copies} copies @ UGX ${binding.cost_per_copy.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+      });
+      doc.moveDown(0.5);
+    }
+
+    // Special Processes
+    if (processes.rows.length > 0) {
+      doc.text('Special Processes:', { underline: true });
+      processes.rows.forEach(process => {
+        const subtotal = process.quantity * process.cost_per_unit;
+        totalCost += subtotal;
+        doc.text(`  ${process.process_name}: ${process.quantity} @ UGX ${process.cost_per_unit.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+      });
+      doc.moveDown(0.5);
+    }
+
+    // Additional Costs
+    if (additionalCosts.rows.length > 0) {
+      const costs = additionalCosts.rows[0];
+      doc.text('Additional Costs:', { underline: true });
+
+      if (costs.design_hours > 0) {
+        const designTotal = costs.design_hours * costs.design_rate;
+        totalCost += designTotal;
+        doc.text(`  Design: ${costs.design_hours} hours @ UGX ${costs.design_rate.toLocaleString()} = UGX ${designTotal.toLocaleString()}`);
+      }
+
+      if (costs.typesetting_hours > 0) {
+        const typesettingTotal = costs.typesetting_hours * costs.typesetting_rate;
+        totalCost += typesettingTotal;
+        doc.text(`  Typesetting: ${costs.typesetting_hours} hours @ UGX ${costs.typesetting_rate.toLocaleString()} = UGX ${typesettingTotal.toLocaleString()}`);
+      }
+
+      if (costs.storage_cost > 0) {
+        totalCost += costs.storage_cost;
+        doc.text(`  Storage: UGX ${costs.storage_cost.toLocaleString()}`);
+      }
+
+      if (costs.transport_cost > 0) {
+        totalCost += costs.transport_cost;
+        doc.text(`  Transport: UGX ${costs.transport_cost.toLocaleString()}`);
+      }
+
+      if (costs.overhead_cost > 0) {
+        totalCost += costs.overhead_cost;
+        doc.text(`  Overhead: UGX ${costs.overhead_cost.toLocaleString()}`);
+      }
+
+      doc.moveDown(0.5);
+    }
+
+    // Total before margin
+    doc.fontSize(14).text(`Total Cost: UGX ${totalCost.toLocaleString()}`, { underline: true });
+    doc.moveDown(0.5);
+
+    // Apply margin
+    const marginAmount = totalCost * (job.margin_percentage / 100);
+    const finalTotal = totalCost + marginAmount;
+
+    doc.text(`Margin (${job.margin_percentage}%): UGX ${marginAmount.toLocaleString()}`);
+    doc.moveDown();
+    doc.fontSize(16).text(`FINAL QUOTE: UGX ${finalTotal.toLocaleString()}`, { bold: true });
+
+    // Footer
+    doc.moveDown(2);
+    doc.fontSize(10).text('This quotation is valid for 30 days from the date of issue.', { align: 'center' });
+    doc.text('Terms and conditions apply.', { align: 'center' });
+
+    // Finalize PDF
+    doc.end();
+
   } catch (err) {
     console.error('[QUOTATION] Error:', err.message);
     res.status(500).json({ error: err.message });
