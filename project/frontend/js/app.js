@@ -512,7 +512,10 @@ function buildCostingDataFromDraft(allData) {
 
 async function generateQuotation(jobId) {
   try {
-    const response = await fetch(`${API_BASE}/costing/invoice/${jobId}`);
+    const response = await fetch(`${API_BASE}/costing/quotation/${jobId}`, {
+      method: 'GET',
+      mode: 'cors'
+    });
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
@@ -570,6 +573,7 @@ async function displayJobSummary() {
         </div>
         <div class="card-actions">
           <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
+          <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
         </div>
       `;
       jobSummaryContainer.appendChild(jobCard);
@@ -903,12 +907,16 @@ if (jobPagesPerCopy) {
 jobSummaryContainer.addEventListener('click', (e) => {
   if (e.target.classList.contains('load-job-btn')) {
     loadJobForEdit(e.target.dataset.jobId);
+  } else if (e.target.classList.contains('print-quotation-btn')) {
+    generateQuotation(e.target.dataset.jobId);
   }
 });
 
 jobsContainer.addEventListener('click', (e) => {
   if (e.target.classList.contains('load-job-btn')) {
     loadJobForEdit(e.target.dataset.jobId);
+  } else if (e.target.classList.contains('print-quotation-btn')) {
+    generateQuotation(e.target.dataset.jobId);
   }
 });
 
@@ -1242,13 +1250,8 @@ if (saveJobBtn) {
         body: JSON.stringify(costingData)
       });
 
-      showStatus(`Costing saved successfully! Job ID: ${result.job_id}`);
+      showStatus(`Costing saved successfully! Job ID: ${result.job_id}. You can generate a quotation from the Jobs list.`);
       clearDraftData();
-
-      // Generate quotation
-      if (confirm('Costing saved! Generate quotation PDF?')) {
-        await generateQuotation(result.job_id);
-      }
 
       showSection(homeSection);
       setActiveNav(navHomeBtn);
@@ -1323,6 +1326,7 @@ function displayJobs(jobs) {
       </div>
       <div class="card-actions">
         <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
+        <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
       </div>
     `;
 
@@ -2056,34 +2060,6 @@ function resetCalculatorModal() {
   calcAdditionalCost.value = '0';
   calcResult.value = '';
   currentCalculatorRow = null;
-}
-
-async function generateInvoice(jobId) {
-  try {
-    const response = await fetch(`${API_BASE}/costing/invoice/${jobId}`, {
-      method: 'GET'
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to generate invoice: ${response.statusText}`);
-    }
-
-    // Create download link
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `invoice_${jobId}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
-
-    showStatus('Invoice generated and downloaded successfully!');
-  } catch (error) {
-    console.error('Invoice generation error:', error);
-    showStatus(`Failed to generate invoice: ${error.message}`, 'error');
-  }
 }
 
 // Initialize

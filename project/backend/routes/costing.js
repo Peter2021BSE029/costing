@@ -185,12 +185,14 @@ router.post('/', async (req, res) => {
 });
 
 // Generate quotation PDF (placeholder - will implement later)
-router.get('/invoice/:jobId', async (req, res) => {
+router.get('/quotation/:jobId', async (req, res) => {
   const { jobId } = req.params;
 
   try {
     // For now, return a simple text response
     // TODO: Implement actual PDF generation
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
 

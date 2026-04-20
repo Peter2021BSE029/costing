@@ -19,7 +19,7 @@ router.post('/', async (req, res) => {
   console.log('[MATERIALS] POST /api/materials - Request body:', req.body);
   const { name, category, unit_of_measure, unit_cost } = req.body;
 
-  if (!name || !unit_cost) {
+  if (!name || unit_cost === undefined) {
     return res.status(400).json({ error: 'Name and unit_cost are required' });
   }
 
@@ -32,6 +32,54 @@ router.post('/', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[MATERIALS] Database error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update material
+router.put('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, category, unit_of_measure, unit_cost } = req.body;
+
+  try {
+    const result = await pool.query(
+      `UPDATE materials SET
+        name = COALESCE($1, name),
+        category = COALESCE($2, category),
+        unit_of_measure = COALESCE($3, unit_of_measure),
+        unit_cost = COALESCE($4, unit_cost)
+      WHERE id = $5 RETURNING *`,
+      [name, category, unit_of_measure, unit_cost, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Material not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[MATERIALS] Update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete material
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM materials WHERE id = $1 RETURNING id',
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Material not found' });
+    }
+
+    res.json({ message: 'Material deleted successfully', id: result.rows[0].id });
+  } catch (err) {
+    console.error('[MATERIALS] Delete error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -12,7 +12,8 @@ console.log('[STARTUP] Environment variables:', {
 });
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true }));
+app.options('*', cors({ origin: true }));
 app.use(express.json());
 
 // Request logging middleware

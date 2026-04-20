@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UPPC Cost Admin</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>UPPC Cost Admin</h1>
+    <nav>
+      <a href="index.html" class="nav-link">Back to App</a>
+    </nav>
+  </header>
+
+  <main>
+    <div id="status" class="admin-status"></div>
+
+    <section class="page-card">
+      <div class="section-header">
+        <h2>Materials</h2>
+        <button id="refresh-admin-data" class="secondary-button">Refresh Data</button>
+      </div>
+      <div class="admin-section">
+        <table id="admin-materials-table" class="admin-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Category</th>
+              <th>Unit</th>
+              <th>Unit Cost</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="admin-form-card">
+        <h3>Add New Material</h3>
+        <form id="create-material-form">
+          <div class="form-row">
+            <input type="text" id="new-material-name" placeholder="Name" required>
+            <input type="text" id="new-material-category" placeholder="Category">
+            <input type="text" id="new-material-unit" placeholder="Unit of measure">
+            <input type="number" id="new-material-cost" placeholder="Unit cost" min="0" step="0.01" required>
+            <button type="submit" class="primary-button">Add Material</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="page-card">
+      <div class="section-header">
+        <h2>Machines</h2>
+      </div>
+      <div class="admin-section">
+        <table id="admin-machines-table" class="admin-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Cost / Impression</th>
+              <th>Setup Cost</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="admin-form-card">
+        <h3>Add New Machine</h3>
+        <form id="create-machine-form">
+          <div class="form-row">
+            <input type="text" id="new-machine-name" placeholder="Machine name" required>
+            <input type="number" id="new-machine-cost" placeholder="Cost per impression" min="0" step="0.01" required>
+            <input type="number" id="new-machine-setup" placeholder="Setup cost" min="0" step="0.01">
+            <button type="submit" class="primary-button">Add Machine</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>
