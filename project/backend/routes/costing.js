@@ -190,6 +190,15 @@ router.get('/quotation/:jobId', async (req, res) => {
   const { jobId } = req.params;
 
   try {
+    // Set CORS headers explicitly
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    // Set PDF headers
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
+
     // Get job details with client information
     const jobQuery = `
       SELECT j.*, c.name as client_name, c.type as client_type, c.address as client_address,

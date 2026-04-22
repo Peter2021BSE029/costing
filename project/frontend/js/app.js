@@ -830,7 +830,17 @@ navCostingBtn.addEventListener('click', async () => {
   setActiveNav(navCostingBtn);
   try {
     console.log('Loading cost sheet data...');
-    await loadCostSheetData();
+    // Only load if materials, machines, etc. are empty
+    if (!materials || materials.length === 0) {
+      await loadCostSheetData();
+    } else {
+      // Data already loaded, just repopulate UI
+      populateMarginTiers(marginTiers);
+      populateMaterials();
+      populateMachines();
+      populateBindings();
+      populateSpecialProcesses();
+    }
     console.log('Loading draft data...');
     loadDraftData(); // Load any saved draft data
     console.log('Showing wizard section:', currentWizardStep);
