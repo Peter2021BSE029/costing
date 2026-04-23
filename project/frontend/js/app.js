@@ -1,5 +1,10 @@
 // API Base URL
-const API_BASE = 'http://127.0.0.1:3000/api';
+const API_BASE = (function () {
+  if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin !== 'null') {
+    return `${window.location.origin}/api`;
+  }
+  return 'http://127.0.0.1:3000/api';
+})();
 
 console.log('Script start');
 
@@ -9,6 +14,7 @@ const navHomeBtn = document.getElementById('nav-home');
 const navCostingBtn = document.getElementById('nav-costing');
 const navClientsBtn = document.getElementById('nav-clients');
 const navJobsBtn = document.getElementById('nav-jobs');
+const newJobBtn = document.getElementById('new-job');
 const loadExistingJobBtn = document.getElementById('load-existing-job');
 const comprehensiveForm = document.getElementById('comprehensive-costing-form');
 const costingSection = document.getElementById('costing-section');
@@ -96,6 +102,13 @@ console.log('Wizard elements found:', {
 let currentWizardStep = 0;
 const wizardSections = ['client', 'job', 'materials', 'machines', 'binding', 'special-processes', 'additional-costs', 'summary'];
 let plateStock = { A1: 0, A2: 0, A3: 0 };
+
+// Global data variables
+let marginTiers = [];
+let materials = [];
+let machines = [];
+let bindings = [];
+let specialProcesses = [];
 const sectionNames = {
   'client': 'Client Information',
   'job': 'Job Information',
@@ -271,9 +284,9 @@ function collectSectionData(section) {
       return { specialProcesses };
     case 'additional-costs':
       return {
-        designHours: formData.get('design-hours'),
+        designPages: formData.get('design-pages'),
         designRate: formData.get('design-rate'),
-        typesettingHours: formData.get('typesetting-hours'),
+        typesettingPages: formData.get('typesetting-pages'),
         typesettingRate: formData.get('typesetting-rate'),
         storagePercent: formData.get('storage-percent'),
         transportPercent: formData.get('transport-percent'),
@@ -368,10 +381,13 @@ function populateSectionData(section, data) {
       }
       break;
     case 'additional-costs':
-      if (data.designHours) document.getElementById('design-hours').value = data.designHours;
+      if (data.designPages) document.getElementById('design-pages').value = data.designPages;
       if (data.designRate) document.getElementById('design-rate').value = data.designRate;
-      if (data.typesettingHours) document.getElementById('typesetting-hours').value = data.typesettingHours;
+      if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
       if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
+      if (data.wastagePercent) document.getElementById('wastage-percent').value = data.wastagePercent;
+      if (data.subcontractDescription) document.getElementById('subcontract-description').value = data.subcontractDescription;
+      if (data.subcontractCost) document.getElementById('subcontract-cost').value = data.subcontractCost;
       if (data.storagePercent) document.getElementById('storage-percent').value = data.storagePercent;
       if (data.transportPercent) document.getElementById('transport-percent').value = data.transportPercent;
       if (data.overheadPercent) document.getElementById('overhead-percent').value = data.overheadPercent;
@@ -495,10 +511,14 @@ function buildCostingDataFromDraft(allData) {
       }))
     },
     additional_costs: {
-      design_hours: parseFloat(additionalCostsData.designHours || 0),
+      design_pages: parseFloat(additionalCostsData.designPages || 0),
       design_rate: parseFloat(additionalCostsData.designRate || 50000),
-      typesetting_hours: parseFloat(additionalCostsData.typesettingHours || 0),
+      typesetting_pages: parseFloat(additionalCostsData.typesettingPages || 0),
       typesetting_rate: parseFloat(additionalCostsData.typesettingRate || 30000),
+      wastage_percent: parseFloat(additionalCostsData.wastagePercent || 5),
+      wastage_cost: 0, // Will be calculated
+      subcontract_description: additionalCostsData.subcontractDescription || '',
+      subcontract_cost: parseFloat(additionalCostsData.subcontractCost || 0),
       storage_percent: parseFloat(additionalCostsData.storagePercent || 5),
       storage_cost: 0, // Will be calculated
       transport_percent: parseFloat(additionalCostsData.transportPercent || 10),
@@ -782,10 +802,14 @@ function populateCostSheetFromJob(job) {
   }
 
   if (job.additional_costs) {
-    document.getElementById('design-hours').value = job.additional_costs.design_hours || '';
+    document.getElementById('design-pages').value = job.additional_costs.design_pages || '';
     document.getElementById('design-rate').value = job.additional_costs.design_rate || '';
-    document.getElementById('typesetting-hours').value = job.additional_costs.typesetting_hours || '';
+    document.getElementById('typesetting-pages').value = job.additional_costs.typesetting_pages || '';
     document.getElementById('typesetting-rate').value = job.additional_costs.typesetting_rate || '';
+    document.getElementById('wastage-percent').value = job.additional_costs.wastage_percent || '';
+    document.getElementById('wastage-cost').value = job.additional_costs.wastage_cost || '';
+    document.getElementById('subcontract-description').value = job.additional_costs.subcontract_description || '';
+    document.getElementById('subcontract-cost').value = job.additional_costs.subcontract_cost || '';
     document.getElementById('storage-cost').value = job.additional_costs.storage_cost || '';
     document.getElementById('transport-cost').value = job.additional_costs.transport_cost || '';
   }
@@ -855,6 +879,21 @@ navCostingBtn.addEventListener('click', async () => {
 loadExistingJobBtn.addEventListener('click', () => {
   showSection(jobsSection);
   setActiveNav(navJobsBtn);
+});
+
+newJobBtn.addEventListener('click', () => {
+  clearDraftData();
+  comprehensiveForm.reset();
+  // Reset dynamic sections
+  resetMaterials();
+  resetMachines();
+  resetBindingAndProcesses();
+  // Reset wizard to first step
+  currentWizardStep = 0;
+  showWizardSection(0);
+  updateCostSummary();
+  showSection(costingSection);
+  setActiveNav(navCostingBtn);
 });
 
 testDbBtn.addEventListener('click', async () => {
@@ -1169,7 +1208,7 @@ if (specialProcessesList) {
 // });
 
 // Additional costs
-document.getElementById('design-hours').addEventListener('input', () => {
+document.getElementById('design-pages').addEventListener('input', () => {
   updateDesignSubtotal();
 });
 
@@ -1177,12 +1216,19 @@ document.getElementById('design-rate').addEventListener('input', () => {
   updateDesignSubtotal();
 });
 
-document.getElementById('typesetting-hours').addEventListener('input', () => {
+document.getElementById('typesetting-pages').addEventListener('input', () => {
   updateTypesettingSubtotal();
 });
 
 document.getElementById('typesetting-rate').addEventListener('input', () => {
   updateTypesettingSubtotal();
+});
+
+document.getElementById('wastage-percent').addEventListener('input', updateCostSummary);
+document.getElementById('subcontract-cost').addEventListener('input', updateCostSummary);
+document.getElementById('binding-other-cost')?.addEventListener('input', updateCostSummary);
+document.getElementById('special-process-other-cost')?.addEventListener('input', () => {
+  updateSpecialProcessesTotal();
 });
 
 document.getElementById('storage-percent').addEventListener('input', updateCostSummary);
@@ -1378,6 +1424,10 @@ function populateMaterials() {
     const currentValue = select.value; // Preserve current selection
     select.innerHTML = '<option value="">Select material...</option>';
     materials.forEach(material => {
+      // Skip materials that contain "plate" in their name (case insensitive)
+      if (material.name.toLowerCase().includes('plate')) {
+        return;
+      }
       const option = document.createElement('option');
       option.value = material.id;
       option.textContent = `${material.name} (${material.unit_cost} UGX/${material.unit_of_measure || 'unit'})`;
@@ -1404,7 +1454,8 @@ function populateMachines() {
 
 function populateBindings() {
   bindingList.innerHTML = '';
-  bindings.forEach(binding => {
+  const uniqueBindings = [...new Map(bindings.map(binding => [binding.id, binding])).values()];
+  uniqueBindings.forEach(binding => {
     const bindingItem = document.createElement('div');
     bindingItem.className = 'binding-item';
     bindingItem.innerHTML = `
@@ -1419,7 +1470,8 @@ function populateBindings() {
 
 function populateSpecialProcesses() {
   specialProcessesList.innerHTML = '';
-  specialProcesses.forEach(process => {
+  const uniqueProcesses = [...new Map(specialProcesses.map(process => [process.id, process])).values()];
+  uniqueProcesses.forEach(process => {
     const processItem = document.createElement('div');
     processItem.className = 'special-process-item';
     processItem.innerHTML = `
@@ -1462,7 +1514,7 @@ function addMachineItem() {
       </select>
     </td>
     <td><input type="number" name="machine-impressions[]" min="1" required></td>
-    <td><input type="number" name="machine-setup[]" min="0" step="0.01" readonly></td>
+    <td><input type="number" name="machine-setup-percent[]" min="0" step="0.1" placeholder="Setup %" value="10"></td>
     <td><input type="number" name="machine-running[]" readonly></td>
     <td><input type="number" name="machine-subtotal[]" readonly></td>
     <td><button type="button" class="remove-machine">🗑️</button></td>
@@ -1580,16 +1632,17 @@ function updateMachineCost(selectElement) {
   const machineId = selectElement.value;
   const machine = machines.find(m => m.id == machineId);
   const item = selectElement.closest('.machine-item');
-  const setupInput = item.querySelector('input[name="machine-setup[]"]');
+  const setupPercentInput = item.querySelector('input[name="machine-setup-percent[]"]');
   const runningInput = item.querySelector('input[name="machine-running[]"]');
   const impressionsInput = item.querySelector('input[name="machine-impressions[]"]');
 
-  if (machine && setupInput && runningInput && impressionsInput) {
-    setupInput.value = machine.setup_cost || 0;
+  if (machine && setupPercentInput && runningInput && impressionsInput) {
+    // Setup percent is editable, default to 10%
+    if (!setupPercentInput.value) setupPercentInput.value = '10';
     runningInput.value = machine.cost_per_impression;
     updateMachineSubtotal(impressionsInput);
-  } else if (setupInput && runningInput && impressionsInput) {
-    setupInput.value = '';
+  } else if (setupPercentInput && runningInput && impressionsInput) {
+    setupPercentInput.value = '10';
     runningInput.value = '';
     updateMachineSubtotal(impressionsInput);
   }
@@ -1597,13 +1650,14 @@ function updateMachineCost(selectElement) {
 
 function updateMachineSubtotal(impressionsInput) {
   const item = impressionsInput.closest('.machine-item');
-  const setupInput = item.querySelector('input[name="machine-setup[]"]');
+  const setupPercentInput = item.querySelector('input[name="machine-setup-percent[]"]');
   const runningInput = item.querySelector('input[name="machine-running[]"]');
   const subtotalInput = item.querySelector('input[name="machine-subtotal[]"]');
 
-  if (setupInput && runningInput && subtotalInput) {
-    const setupCost = parseFloat(setupInput.value || 0);
+  if (setupPercentInput && runningInput && subtotalInput) {
     const runningCost = parseFloat(runningInput.value || 0) * parseFloat(impressionsInput.value || 0);
+    const setupPercent = parseFloat(setupPercentInput.value || 0);
+    const setupCost = runningCost * (setupPercent / 100);
     const subtotal = setupCost + runningCost;
     subtotalInput.value = subtotal.toFixed(2);
     item.dataset.subtotal = subtotal;
@@ -1641,17 +1695,17 @@ function updateProcessSubtotal(quantityInput) {
 }
 
 function updateDesignSubtotal() {
-  const hours = parseFloat(document.getElementById('design-hours').value || 0);
+  const pages = parseFloat(document.getElementById('design-pages').value || 0);
   const rate = parseFloat(document.getElementById('design-rate').value || 0);
-  const subtotal = hours * rate;
+  const subtotal = pages * rate;
   document.getElementById('design-subtotal').value = subtotal.toFixed(2);
   updateCostSummary();
 }
 
 function updateTypesettingSubtotal() {
-  const hours = parseFloat(document.getElementById('typesetting-hours').value || 0);
+  const pages = parseFloat(document.getElementById('typesetting-pages').value || 0);
   const rate = parseFloat(document.getElementById('typesetting-rate').value || 0);
-  const subtotal = hours * rate;
+  const subtotal = pages * rate;
   document.getElementById('typesetting-subtotal').value = subtotal.toFixed(2);
   updateCostSummary();
 }
@@ -1703,39 +1757,50 @@ function updateCostSummary() {
       bindingSubtotal += parseFloat(costInput.value || 0);
     }
   });
+  const bindingOtherCost = parseFloat(document.getElementById('binding-other-cost')?.value || 0);
+  bindingSubtotal += bindingOtherCost;
   document.getElementById('binding-total').textContent = bindingSubtotal.toFixed(2);
 
   // Calculate additional costs
   const designSubtotalInput = document.getElementById('design-subtotal');
   const typesettingSubtotalInput = document.getElementById('typesetting-subtotal');
+  const wastagePercentInput = document.getElementById('wastage-percent');
+  const subcontractCostInput = document.getElementById('subcontract-cost');
   const storagePercentInput = document.getElementById('storage-percent');
   const transportPercentInput = document.getElementById('transport-percent');
   const overheadPercentInput = document.getElementById('overhead-percent');
+  const wastageCostInput = document.getElementById('wastage-cost');
   const storageCostInput = document.getElementById('storage-cost');
   const transportCostInput = document.getElementById('transport-cost');
   const overheadCostInput = document.getElementById('overhead-cost');
 
   const designSubtotal = designSubtotalInput ? parseFloat(designSubtotalInput.value || 0) : 0;
   const typesettingSubtotal = typesettingSubtotalInput ? parseFloat(typesettingSubtotalInput.value || 0) : 0;
-  const baseCost = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + designSubtotal + typesettingSubtotal;
+  const subcontractCost = subcontractCostInput ? parseFloat(subcontractCostInput.value || 0) : 0;
+  const baseCost = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + designSubtotal + typesettingSubtotal + subcontractCost;
 
+  const wastagePercent = wastagePercentInput ? parseFloat(wastagePercentInput.value || 0) : 0;
   const storagePercent = storagePercentInput ? parseFloat(storagePercentInput.value || 0) : 0;
   const transportPercent = transportPercentInput ? parseFloat(transportPercentInput.value || 0) : 0;
   const overheadPercent = overheadPercentInput ? parseFloat(overheadPercentInput.value || 0) : 0;
 
+  const wastageCost = baseCost * wastagePercent / 100;
   const storageCost = baseCost * storagePercent / 100;
   const transportCost = baseCost * transportPercent / 100;
   const overheadCost = baseCost * overheadPercent / 100;
 
+  if (wastageCostInput) wastageCostInput.value = wastageCost.toFixed(2);
   if (storageCostInput) storageCostInput.value = storageCost.toFixed(2);
   if (transportCostInput) transportCostInput.value = transportCost.toFixed(2);
   if (overheadCostInput) overheadCostInput.value = overheadCost.toFixed(2);
 
-  const additionalTotal = designSubtotal + typesettingSubtotal + storageCost + transportCost + overheadCost;
+  const additionalTotal = designSubtotal + typesettingSubtotal + wastageCost + subcontractCost + storageCost + transportCost + overheadCost;
   if (designSubtotalInput) designSubtotalInput.value = designSubtotal.toFixed(2);
   if (typesettingSubtotalInput) typesettingSubtotalInput.value = typesettingSubtotal.toFixed(2);
   document.getElementById('design-total').textContent = designSubtotal.toFixed(2);
   document.getElementById('typesetting-total').textContent = typesettingSubtotal.toFixed(2);
+  document.getElementById('wastage-total').textContent = wastageCost.toFixed(2);
+  document.getElementById('subcontract-total').textContent = subcontractCost.toFixed(2);
   document.getElementById('storage-total').textContent = storageCost.toFixed(2);
   document.getElementById('transport-total').textContent = transportCost.toFixed(2);
   document.getElementById('overhead-total').textContent = overheadCost.toFixed(2);
@@ -1965,10 +2030,14 @@ function collectCostingData() {
       })
     },
     additional_costs: {
-      design_hours: parseFloat(formData.get('design-hours') || 0),
+      design_pages: parseFloat(formData.get('design-pages') || 0),
       design_rate: parseFloat(formData.get('design-rate') || 0),
-      typesetting_hours: parseFloat(formData.get('typesetting-hours') || 0),
+      typesetting_pages: parseFloat(formData.get('typesetting-pages') || 0),
       typesetting_rate: parseFloat(formData.get('typesetting-rate') || 0),
+      wastage_percent: parseFloat(formData.get('wastage-percent') || 0),
+      wastage_cost: parseFloat(formData.get('wastage-cost') || 0),
+      subcontract_description: formData.get('subcontract-description') || '',
+      subcontract_cost: parseFloat(formData.get('subcontract-cost') || 0),
       storage_percent: parseFloat(formData.get('storage-percent') || 0),
       storage_cost: parseFloat(formData.get('storage-cost') || 0),
       transport_percent: parseFloat(formData.get('transport-percent') || 0),
@@ -2044,6 +2113,8 @@ function updateSpecialProcessesTotal() {
   processItems.forEach(item => {
     total += parseFloat(item.value || 0);
   });
+  const otherProcessCost = parseFloat(document.getElementById('special-process-other-cost')?.value || 0);
+  total += otherProcessCost;
   specialProcessesTotal.value = total.toFixed(2);
   updateCostSummary();
 }

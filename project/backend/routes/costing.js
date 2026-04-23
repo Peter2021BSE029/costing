@@ -138,13 +138,17 @@ router.post('/', async (req, res) => {
 
     // 7. Insert additional costs
     if (additional_costs) {
-      const additionalColumns = ['job_id', 'design_hours', 'design_rate', 'typesetting_hours', 'typesetting_rate', 'storage_cost', 'transport_cost'];
+      const additionalColumns = ['job_id', 'design_pages', 'design_rate', 'typesetting_pages', 'typesetting_rate', 'wastage_percent', 'wastage_cost', 'subcontract_description', 'subcontract_cost', 'storage_cost', 'transport_cost'];
       const additionalValues = [
         jobId,
-        additional_costs.design_hours || 0,
+        additional_costs.design_pages || 0,
         additional_costs.design_rate || 0,
-        additional_costs.typesetting_hours || 0,
+        additional_costs.typesetting_pages || 0,
         additional_costs.typesetting_rate || 0,
+        additional_costs.wastage_percent || 5,
+        additional_costs.wastage_cost || 0,
+        additional_costs.subcontract_description || '',
+        additional_costs.subcontract_cost || 0,
         additional_costs.storage_cost || 0,
         additional_costs.transport_cost || 0
       ];
@@ -358,16 +362,26 @@ router.get('/quotation/:jobId', async (req, res) => {
       const costs = additionalCosts.rows[0];
       doc.text('Additional Costs:', { underline: true });
 
-      if (costs.design_hours > 0) {
-        const designTotal = costs.design_hours * costs.design_rate;
+      if (costs.design_pages > 0) {
+        const designTotal = costs.design_pages * costs.design_rate;
         totalCost += designTotal;
-        doc.text(`  Design: ${costs.design_hours} hours @ UGX ${costs.design_rate.toLocaleString()} = UGX ${designTotal.toLocaleString()}`);
+        doc.text(`  Design: ${costs.design_pages} pages @ UGX ${costs.design_rate.toLocaleString()} = UGX ${designTotal.toLocaleString()}`);
       }
 
-      if (costs.typesetting_hours > 0) {
-        const typesettingTotal = costs.typesetting_hours * costs.typesetting_rate;
+      if (costs.typesetting_pages > 0) {
+        const typesettingTotal = costs.typesetting_pages * costs.typesetting_rate;
         totalCost += typesettingTotal;
-        doc.text(`  Typesetting: ${costs.typesetting_hours} hours @ UGX ${costs.typesetting_rate.toLocaleString()} = UGX ${typesettingTotal.toLocaleString()}`);
+        doc.text(`  Typesetting: ${costs.typesetting_pages} pages @ UGX ${costs.typesetting_rate.toLocaleString()} = UGX ${typesettingTotal.toLocaleString()}`);
+      }
+
+      if (costs.wastage_cost > 0) {
+        totalCost += costs.wastage_cost;
+        doc.text(`  Wastage: UGX ${costs.wastage_cost.toLocaleString()}`);
+      }
+
+      if (costs.subcontract_cost > 0) {
+        totalCost += costs.subcontract_cost;
+        doc.text(`  Subcontract (${costs.subcontract_description}): UGX ${costs.subcontract_cost.toLocaleString()}`);
       }
 
       if (costs.storage_cost > 0) {

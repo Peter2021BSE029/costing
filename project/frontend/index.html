@@ -11,10 +11,13 @@
     <h1>UPPC Costing System</h1>
     <nav>
       <button id="nav-home">Home</button>
-      <button id="nav-costing">New Cost Sheet</button>
+      <button id="nav-costing">Cost Sheet</button>
       <button id="nav-clients">Clients</button>
       <button id="nav-jobs">Jobs</button>
-      <a href="admin.html" class="nav-link">Admin Costs</a>
+      <a href="admin.html" class="nav-link admin-link">
+        <img src="../images/icons/admin.png" alt="Admin" class="admin-icon">
+        <span>Admin Costs</span>
+      </a>
     </nav>
   </header>
 
@@ -52,7 +55,10 @@
       <div class="page-card">
         <div class="section-header">
           <h2>Cost Sheet</h2>
-          <button id="load-existing-job" type="button" class="secondary-button">Load Existing Job</button>
+          <div style="display: flex; gap: 10px;">
+            <button id="new-job" type="button" class="secondary-button">New Job</button>
+            <button id="load-existing-job" type="button" class="secondary-button">Load Existing Job</button>
+          </div>
         </div>
         <div id="costing-wizard">
           <div class="wizard-navigation">
@@ -192,19 +198,19 @@
                 <tbody>
                   <tr>
                     <td>A1</td>
-                    <td><input type="number" id="plates-a1-qty" name="plates-a1-qty" min="0" value="0" readonly></td>
+                    <td><input type="number" id="plates-a1-qty" name="plates-a1-qty" min="0" value="0"></td>
                     <td><input type="number" id="plates-a1-cost" name="plates-a1-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
                     <td><input type="number" id="plates-a1-subtotal" readonly></td>
                   </tr>
                   <tr>
                     <td>A2</td>
-                    <td><input type="number" id="plates-a2-qty" name="plates-a2-qty" min="0" value="0" readonly></td>
+                    <td><input type="number" id="plates-a2-qty" name="plates-a2-qty" min="0" value="0"></td>
                     <td><input type="number" id="plates-a2-cost" name="plates-a2-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
                     <td><input type="number" id="plates-a2-subtotal" readonly></td>
                   </tr>
                   <tr>
                     <td>A3</td>
-                    <td><input type="number" id="plates-a3-qty" name="plates-a3-qty" min="0" value="0" readonly></td>
+                    <td><input type="number" id="plates-a3-qty" name="plates-a3-qty" min="0" value="0"></td>
                     <td><input type="number" id="plates-a3-cost" name="plates-a3-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
                     <td><input type="number" id="plates-a3-subtotal" readonly></td>
                   </tr>
@@ -221,7 +227,7 @@
                 <tr>
                   <th>Machine</th>
                   <th>Impressions</th>
-                  <th>Setup Cost</th>
+                  <th>Setup %</th>
                   <th>Running Cost</th>
                   <th>Subtotal</th>
                   <th>Actions</th>
@@ -235,7 +241,7 @@
                     </select>
                   </td>
                   <td><input type="number" name="machine-impressions[]" min="1" required></td>
-                  <td><input type="number" name="machine-setup[]" min="0" step="0.01" readonly></td>
+                  <td><input type="number" name="machine-setup-percent[]" min="0" step="0.1" placeholder="Setup %" value="10"></td>
                   <td><input type="number" name="machine-running[]" readonly></td>
                   <td><input type="number" name="machine-subtotal[]" readonly></td>
                   <td><button type="button" class="remove-machine" style="display: none;">Remove</button></td>
@@ -250,6 +256,11 @@
             <h3>Binding</h3>
             <div class="binding-list" id="binding-list">
               <!-- Binding items will be populated by JavaScript -->
+            </div>
+            <div class="other-binding">
+              <label for="binding-other-name">Other Binding Method</label>
+              <input type="text" id="binding-other-name" name="binding-other-name" placeholder="Describe other binding method">
+              <input type="number" id="binding-other-cost" name="binding-other-cost" min="0" step="0.01" placeholder="Other binding cost">
             </div>
           </div>
 
@@ -292,6 +303,11 @@
             <h3>Special Processes</h3>
             <div class="special-processes-list" id="special-processes-list">
               <!-- Special process items will be populated by JavaScript -->
+            </div>
+            <div class="other-special-process">
+              <label for="special-process-other-name">Other Special Process</label>
+              <input type="text" id="special-process-other-name" name="special-process-other-name" placeholder="Describe other special process">
+              <input type="number" id="special-process-other-cost" name="special-process-other-cost" min="0" step="0.01" placeholder="Other special process cost">
             </div>
             <div class="special-processes-total">
               <label for="special-processes-total">Total Special Processes Cost:</label>
@@ -368,11 +384,11 @@
             <h3>Additional Costs</h3>
             <div class="form-row">
               <div class="form-group">
-                <label for="design-hours">Graphics Design Hours:</label>
-                <input type="number" id="design-hours" name="design-hours" min="0" step="0.5">
+                <label for="design-pages">Graphics Design Pages:</label>
+                <input type="number" id="design-pages" name="design-pages" min="0" step="1">
               </div>
               <div class="form-group">
-                <label for="design-rate">Hourly Rate:</label>
+                <label for="design-rate">Rate per Page:</label>
                 <input type="number" id="design-rate" name="design-rate" min="0" step="0.01" value="50000">
               </div>
               <div class="form-group">
@@ -383,16 +399,27 @@
 
             <div class="form-row">
               <div class="form-group">
-                <label for="typesetting-hours">Typesetting Hours:</label>
-                <input type="number" id="typesetting-hours" name="typesetting-hours" min="0" step="0.5">
+                <label for="typesetting-pages">Typesetting Pages:</label>
+                <input type="number" id="typesetting-pages" name="typesetting-pages" min="0" step="1">
               </div>
               <div class="form-group">
-                <label for="typesetting-rate">Hourly Rate:</label>
+                <label for="typesetting-rate">Rate per Page:</label>
                 <input type="number" id="typesetting-rate" name="typesetting-rate" min="0" step="0.01" value="30000">
               </div>
               <div class="form-group">
                 <label for="typesetting-subtotal">Subtotal:</label>
                 <input type="number" id="typesetting-subtotal" name="typesetting-subtotal" readonly>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="wastage-percent">Wastage %:</label>
+                <input type="number" id="wastage-percent" name="wastage-percent" min="0" step="0.1" value="5">
+              </div>
+              <div class="form-group">
+                <label for="wastage-cost">Wastage Cost:</label>
+                <input type="number" id="wastage-cost" name="wastage-cost" readonly>
               </div>
             </div>
 
@@ -420,6 +447,17 @@
 
             <div class="form-row">
               <div class="form-group">
+                <label for="subcontract-description">Subcontract Description:</label>
+                <input type="text" id="subcontract-description" name="subcontract-description" placeholder="e.g., Binding outsourced">
+              </div>
+              <div class="form-group">
+                <label for="subcontract-cost">Subcontract Cost:</label>
+                <input type="number" id="subcontract-cost" name="subcontract-cost" min="0" step="0.01">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
                 <label for="overhead-percent">Overhead %:</label>
                 <input type="number" id="overhead-percent" name="overhead-percent" min="0" step="0.1" value="10">
               </div>
@@ -441,6 +479,8 @@
               <div class="summary-category"><strong>Pre Press</strong></div>
               <div class="summary-row"><span>Design Subtotal:</span> <span id="design-total">0</span></div>
               <div class="summary-row"><span>Typesetting Subtotal:</span> <span id="typesetting-total">0</span></div>
+              <div class="summary-row"><span>Wastage Subtotal:</span> <span id="wastage-total">0</span></div>
+              <div class="summary-row"><span>Subcontract Subtotal:</span> <span id="subcontract-total">0</span></div>
               
               <div class="summary-category"><strong>Press</strong></div>
               <div class="summary-row"><span>Machines Subtotal:</span> <span id="machines-total">0</span></div>

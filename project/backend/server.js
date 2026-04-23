@@ -41,10 +41,19 @@ pool.on('connect', () => {
 });
 
 const PORT = parseInt(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
 
+// Serve static frontend files
+app.use(express.static(path.join(__dirname, '..', 'frontend')));
+
+// Redirect root to frontend
 app.get('/', (req, res) => {
-  console.log('[HANDLER] Root endpoint called');
-  res.json({ message: 'Server is running' });
+  res.redirect('/index.html');
+});
+
+app.get('/api', (req, res) => {
+  console.log('[HANDLER] API root endpoint called');
+  res.json({ message: 'API is running' });
 });
 
 app.get('/api/test', async (req, res) => {
@@ -83,8 +92,11 @@ app.use('/api/costing', costingRouter);
 const systemSettingsRouter = require('./routes/system-settings');
 app.use('/api/system-settings', systemSettingsRouter);
 
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[STARTUP] Server running on http://127.0.0.1:${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`[STARTUP] Server running on http://${HOST}:${PORT}`);
+  console.log(`[STARTUP] Frontend: http://${HOST}:${PORT}/`);
+  console.log(`[STARTUP] Admin: http://${HOST}:${PORT}/admin.html`);
+  console.log(`[STARTUP] API: http://${HOST}:${PORT}/api`);
   console.log(`[STARTUP] Ready to accept connections`);
 });
 

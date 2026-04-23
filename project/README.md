@@ -30,34 +30,36 @@ This is a full-stack costing system built with Node.js backend, PostgreSQL datab
 - `job_additional_costs` - Design, typesetting, storage, transport, overhead costs
 - `system_settings` - VAT (18%) and overhead percentages
 
-## Setup
+## Deployment
 
-1. **Install Dependencies:**
-   ```bash
-   npm install
-   ```
+### Local Development
+1. Set up PostgreSQL database and run schema
+2. Configure `.env` file
+3. Run `npm start`
+4. Access at `http://127.0.0.1:3000/`
 
-2. **Set up PostgreSQL Database:**
-   - Install PostgreSQL
-   - Update `.env` with your credentials:
-     ```
-     DB_HOST=localhost
-     DB_PORT=5432
-     DB_NAME=costing_db
-     DB_USER=your_username
-     DB_PASS=your_password
-     PORT=3000
-     ```
-   - Run the schema: `psql -U postgres -h localhost -p 5432 -f database/schema.sql`
+### Server Deployment
+1. Set up PostgreSQL on your server
+2. Update `.env` with server database credentials
+3. Set `HOST=0.0.0.0` to allow external connections
+4. Run `npm start`
+5. Access at `http://your-server-ip:3000/`
 
-3. **Start the Application:**
-   ```bash
-   npm start
-   ```
+### Environment Variables
+```env
+DB_HOST=localhost          # Database server host
+DB_PORT=5432              # Database port
+DB_NAME=costing_db        # Database name
+DB_USER=your_username     # Database user
+DB_PASS=your_password     # Database password
+PORT=3000                 # Server port
+HOST=127.0.0.1            # Server host (use 0.0.0.0 for external access)
+```
 
-4. **Open Frontend:**
-   - Open `frontend/index.html` in your browser
-   - Server runs on `http://127.0.0.1:3000`
+### URLs
+- **Main Application**: `http://<host>:<port>/`
+- **Admin Interface**: `http://<host>:<port>/admin.html`
+- **API Base**: `http://<host>:<port>/api`
 
 ## Usage
 

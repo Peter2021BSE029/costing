@@ -1,4 +1,9 @@
-const API_BASE = 'http://127.0.0.1:3000/api';
+const API_BASE = (function () {
+  if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin !== 'null') {
+    return `${window.location.origin}/api`;
+  }
+  return 'http://127.0.0.1:3000/api';
+})();
 
 const statusDiv = document.getElementById('status');
 const refreshAdminDataBtn = document.getElementById('refresh-admin-data');
