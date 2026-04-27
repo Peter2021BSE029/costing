@@ -600,6 +600,44 @@ button[type="submit"]:hover {
   background-color: #e6b800;
 }
 
+.wizard-dots {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+
+.wizard-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #e0e0e0;
+  border: 2px solid #999;
+  color: #666;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.wizard-dot:hover {
+  background-color: #d0d0d0;
+  border-color: #666;
+  transform: scale(1.1);
+}
+
+.wizard-dot.active {
+  background-color: #fcd116;
+  border-color: #d62800;
+  color: #000;
+  box-shadow: 0 0 0 3px rgba(214, 40, 0, 0.2);
+}
+}
+
 .wizard-actions #save-job:disabled {
   background-color: #ccc;
   color: #666;

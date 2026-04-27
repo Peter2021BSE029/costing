@@ -9,7 +9,6 @@ const API_BASE = (function () {
 console.log('Script start');
 
 // DOM Elements
-const testDbBtn = document.getElementById('test-db');
 const navHomeBtn = document.getElementById('nav-home');
 const navCostingBtn = document.getElementById('nav-costing');
 const navClientsBtn = document.getElementById('nav-clients');
@@ -87,6 +86,7 @@ const specialProcessesList = document.getElementById('special-processes-list');
 const wizardPrevBtn = document.getElementById('wizard-prev');
 const wizardNextBtn = document.getElementById('wizard-next');
 const wizardStepDisplay = document.getElementById('wizard-step');
+const wizardDotsContainer = document.getElementById('wizard-dots');
 const saveSectionBtn = document.getElementById('save-section');
 const saveJobBtn = document.getElementById('save-job');
 
@@ -94,13 +94,14 @@ console.log('Wizard elements found:', {
   wizardPrevBtn: !!wizardPrevBtn,
   wizardNextBtn: !!wizardNextBtn,
   wizardStepDisplay: !!wizardStepDisplay,
+  wizardDotsContainer: !!wizardDotsContainer,
   saveSectionBtn: !!saveSectionBtn,
   saveJobBtn: !!saveJobBtn
 });
 
 // Wizard state
 let currentWizardStep = 0;
-const wizardSections = ['client', 'job', 'materials', 'machines', 'binding', 'special-processes', 'additional-costs', 'summary'];
+const wizardSections = ['client-job', 'prepress', 'press', 'post-press', 'additional-costs', 'summary'];
 let plateStock = { A1: 0, A2: 0, A3: 0 };
 
 // Global data variables
@@ -110,12 +111,10 @@ let machines = [];
 let bindings = [];
 let specialProcesses = [];
 const sectionNames = {
-  'client': 'Client Information',
-  'job': 'Job Information',
-  'materials': 'Materials',
-  'machines': 'Machines',
-  'binding': 'Binding',
-  'special-processes': 'Special Processes',
+  'client-job': 'Client & Job Information',
+  'prepress': 'Pre-press',
+  'press': 'Press (Materials & Machines)',
+  'post-press': 'Post-press (Binding & Special Processes)',
   'additional-costs': 'Additional Costs',
   'summary': 'Cost Summary'
 };
@@ -158,7 +157,29 @@ function showWizardSection(step) {
   sections.forEach((section, index) => {
     section.style.display = index === step ? 'block' : 'none';
   });
+  if (saveSectionBtn) {
+    saveSectionBtn.style.display = step === wizardSections.length - 1 ? 'none' : 'inline-block';
+  }
+  renderWizardDots();
   updateWizardNavigation();
+}
+
+function renderWizardDots() {
+  if (!wizardDotsContainer) return;
+  wizardDotsContainer.innerHTML = '';
+  wizardSections.forEach((section, index) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = `wizard-dot${index === currentWizardStep ? ' active' : ''}`;
+    dot.textContent = index + 1;
+    dot.title = sectionNames[section];
+    dot.addEventListener('click', () => {
+      saveCurrentSection();
+      currentWizardStep = index;
+      showWizardSection(currentWizardStep);
+    });
+    wizardDotsContainer.appendChild(dot);
+  });
 }
 
 function updateWizardNavigation() {
@@ -174,6 +195,7 @@ function updateWizardNavigation() {
 
 function nextWizardStep() {
   if (currentWizardStep < wizardSections.length - 1) {
+    saveCurrentSection();
     currentWizardStep++;
     showWizardSection(currentWizardStep);
   }
@@ -195,7 +217,6 @@ function saveCurrentSection() {
     console.log('Collected data:', data);
     saveSectionData(section, data);
     console.log('Data saved to localStorage');
-    showStatus(`Section "${sectionNames[section]}" saved successfully!`);
     updateWizardNavigation();
   } catch (error) {
     console.error('Error saving section:', error);
@@ -207,27 +228,30 @@ function collectSectionData(section) {
   console.log('Collecting data for section:', section);
   const formData = new FormData(comprehensiveForm);
   switch (section) {
-    case 'client':
-      const clientData = {
+    case 'client-job':
+      return {
         existingClient: formData.get('existing-client'),
         clientName: formData.get('client-name'),
         clientType: formData.get('client-type'),
         clientAddress: formData.get('client-address'),
         clientContact: formData.get('client-contact'),
         clientEmail: formData.get('client-email'),
-        marginTier: formData.get('margin-tier')
-      };
-      console.log('Client data:', clientData);
-      return clientData;
-    case 'job':
-      return {
+        marginTier: formData.get('margin-tier'),
         jobName: formData.get('job-name'),
         jobQuantity: formData.get('job-quantity'),
         jobPageSize: formData.get('job-page-size'),
         jobPagesPerCopy: formData.get('job-pages-per-copy'),
         jobDescription: formData.get('job-description')
       };
-    case 'materials':
+    case 'prepress':
+      return {
+        designPages: formData.get('design-pages'),
+        designRate: formData.get('design-rate'),
+        typesettingPages: formData.get('typesetting-pages'),
+        typesettingRate: formData.get('typesetting-rate'),
+        ctpCost: formData.get('ctp-cost')
+      };
+    case 'press':
       const materials = [];
       const materialIds = formData.getAll('material-id[]');
       const materialQuantities = formData.getAll('material-quantity[]');
@@ -239,13 +263,6 @@ function collectSectionData(section) {
           });
         }
       });
-      return {
-        materials,
-        platesA1Cost: formData.get('plates-a1-cost'),
-        platesA2Cost: formData.get('plates-a2-cost'),
-        platesA3Cost: formData.get('plates-a3-cost')
-      };
-    case 'machines':
       const machines = [];
       const machineIds = formData.getAll('machine-id[]');
       const machineImpressions = formData.getAll('machine-impressions[]');
@@ -257,8 +274,14 @@ function collectSectionData(section) {
           });
         }
       });
-      return { machines };
-    case 'binding':
+      return {
+        materials,
+        machines,
+        platesA1Cost: formData.get('plates-a1-cost'),
+        platesA2Cost: formData.get('plates-a2-cost'),
+        platesA3Cost: formData.get('plates-a3-cost')
+      };
+    case 'post-press':
       const bindings = [];
       document.querySelectorAll('input[name="binding-selected[]"]:checked').forEach(checkbox => {
         const bindingId = checkbox.value;
@@ -268,8 +291,6 @@ function collectSectionData(section) {
           cost: costInput?.value || 0
         });
       });
-      return { bindings };
-    case 'special-processes':
       const specialProcesses = [];
       document.querySelectorAll('input[name="special-process-cost[]"]').forEach(input => {
         const processId = input.dataset.processId;
@@ -281,13 +302,13 @@ function collectSectionData(section) {
           });
         }
       });
-      return { specialProcesses };
+      return { bindings, specialProcesses };
     case 'additional-costs':
       return {
-        designPages: formData.get('design-pages'),
-        designRate: formData.get('design-rate'),
-        typesettingPages: formData.get('typesetting-pages'),
-        typesettingRate: formData.get('typesetting-rate'),
+        wastagePercent: formData.get('wastage-percent'),
+        subcontractDescription: formData.get('subcontract-description'),
+        subcontractCost: formData.get('subcontract-cost'),
+        commissionCost: formData.get('commission-cost'),
         storagePercent: formData.get('storage-percent'),
         transportPercent: formData.get('transport-percent'),
         overheadPercent: formData.get('overhead-percent')
@@ -301,7 +322,8 @@ function collectSectionData(section) {
 
 function populateSectionData(section, data) {
   switch (section) {
-    case 'client':
+    case 'client-job':
+      // Handle combined client and job data
       if (data.existingClient) document.getElementById('existing-client').value = data.existingClient;
       if (data.clientName) document.getElementById('client-name').value = data.clientName;
       if (data.clientType) document.getElementById('client-type').value = data.clientType;
@@ -310,8 +332,7 @@ function populateSectionData(section, data) {
       if (data.clientEmail) document.getElementById('client-email').value = data.clientEmail;
       if (data.marginTier) document.getElementById('margin-tier').value = data.marginTier;
       setMarginTierFromClientType(data.clientType);
-      break;
-    case 'job':
+
       if (data.jobName) document.getElementById('job-name').value = data.jobName;
       if (data.jobQuantity) document.getElementById('job-quantity').value = data.jobQuantity;
       if (data.jobPageSize) document.getElementById('job-page-size').value = data.jobPageSize;
@@ -319,7 +340,16 @@ function populateSectionData(section, data) {
       if (data.jobDescription) document.getElementById('job-description').value = data.jobDescription;
       updatePlateSummary();
       break;
-    case 'materials':
+    case 'prepress':
+      if (data.designPages) document.getElementById('design-pages').value = data.designPages;
+      if (data.designRate) document.getElementById('design-rate').value = data.designRate;
+      if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
+      if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
+      if (data.ctpCost) document.getElementById('ctp-cost').value = data.ctpCost;
+      updatePrepressSubtotal();
+      break;
+    case 'press':
+      // Handle combined materials and machines data
       // Clear existing materials
       resetMaterials();
       if (data.materials && data.materials.length > 0) {
@@ -340,8 +370,7 @@ function populateSectionData(section, data) {
       if (data.platesA2Cost) document.getElementById('plates-a2-cost').value = data.platesA2Cost;
       if (data.platesA3Cost) document.getElementById('plates-a3-cost').value = data.platesA3Cost;
       updatePlatesCostSummary();
-      break;
-    case 'machines':
+
       // Clear existing machines
       resetMachines();
       if (data.machines && data.machines.length > 0) {
@@ -359,7 +388,8 @@ function populateSectionData(section, data) {
         });
       }
       break;
-    case 'binding':
+    case 'post-press':
+      // Handle combined binding and special processes data
       if (data.bindings) {
         data.bindings.forEach(binding => {
           const checkbox = document.querySelector(`input[name="binding-selected[]"][value="${binding.id}"]`);
@@ -370,8 +400,6 @@ function populateSectionData(section, data) {
           }
         });
       }
-      break;
-    case 'special-processes':
       if (data.specialProcesses) {
         data.specialProcesses.forEach(process => {
           const costInput = document.querySelector(`input[data-process-id="${process.id}"]`);
@@ -381,18 +409,12 @@ function populateSectionData(section, data) {
       }
       break;
     case 'additional-costs':
-      if (data.designPages) document.getElementById('design-pages').value = data.designPages;
-      if (data.designRate) document.getElementById('design-rate').value = data.designRate;
-      if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
-      if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
       if (data.wastagePercent) document.getElementById('wastage-percent').value = data.wastagePercent;
       if (data.subcontractDescription) document.getElementById('subcontract-description').value = data.subcontractDescription;
       if (data.subcontractCost) document.getElementById('subcontract-cost').value = data.subcontractCost;
       if (data.storagePercent) document.getElementById('storage-percent').value = data.storagePercent;
       if (data.transportPercent) document.getElementById('transport-percent').value = data.transportPercent;
       if (data.overheadPercent) document.getElementById('overhead-percent').value = data.overheadPercent;
-      updateDesignSubtotal();
-      updateTypesettingSubtotal();
       break;
   }
 }
@@ -432,18 +454,16 @@ function collectAllData() {
 }
 
 function buildCostingDataFromDraft(allData) {
-  const clientData = allData.client || {};
-  const jobData = allData.job || {};
-  const materialsData = allData.materials || {};
-  const machinesData = allData.machines || {};
-  const bindingData = allData.binding || {};
-  const specialProcessesData = allData.specialProcesses || {};
-  const additionalCostsData = allData.additionalCosts || {};
+  const clientJobData = allData['client-job'] || {};
+  const prepressData = allData.prepress || {};
+  const pressData = allData.press || {};
+  const postPressData = allData['post-press'] || {};
+  const additionalCostsData = allData['additional-costs'] || {};
 
   // Build materials array
   const materialsArray = [];
-  if (materialsData.materials) {
-    materialsData.materials.forEach(mat => {
+  if (pressData.materials) {
+    pressData.materials.forEach(mat => {
       const material = materials.find(m => m.id == mat.id);
       if (material) {
         materialsArray.push({
@@ -457,8 +477,8 @@ function buildCostingDataFromDraft(allData) {
 
   // Build machines array
   const machinesArray = [];
-  if (machinesData.machines) {
-    machinesData.machines.forEach(mach => {
+  if (pressData.machines) {
+    pressData.machines.forEach(mach => {
       const machine = machines.find(m => m.id == mach.id);
       if (machine) {
         machinesArray.push({
@@ -472,23 +492,23 @@ function buildCostingDataFromDraft(allData) {
   }
 
   // Calculate plate requirements
-  const pageSize = jobData.jobPageSize;
-  const pagesPerCopy = parseInt(jobData.jobPagesPerCopy || 0);
+  const pageSize = clientJobData.jobPageSize;
+  const pagesPerCopy = parseInt(clientJobData.jobPagesPerCopy || 0);
   const plateResults = calculatePlateRequirements(pagesPerCopy, pageSize);
 
   return {
     client: {
-      name: clientData.clientName,
-      type: clientData.clientType,
-      address: clientData.clientAddress,
-      contact: clientData.clientContact,
-      email: clientData.clientEmail,
-      margin_tier_id: parseInt(clientData.marginTier || 0)
+      name: clientJobData.clientName,
+      type: clientJobData.clientType,
+      address: clientJobData.clientAddress,
+      contact: clientJobData.clientContact,
+      email: clientJobData.clientEmail,
+      margin_tier_id: parseInt(clientJobData.marginTier || 0)
     },
     job: {
-      name: jobData.jobName,
-      description: jobData.jobDescription,
-      quantity: parseInt(jobData.jobQuantity || 0),
+      name: clientJobData.jobName,
+      description: clientJobData.jobDescription,
+      quantity: parseInt(clientJobData.jobQuantity || 0),
       page_size: pageSize,
       pages_per_copy: pagesPerCopy,
       stock_sheets: plateResults.stockSheets,
@@ -498,23 +518,24 @@ function buildCostingDataFromDraft(allData) {
     },
     materials: materialsArray,
     plates: [
-      { size: 'A1', quantity: plateResults.plates.A1, unit_cost: parseFloat(materialsData.platesA1Cost || 0) },
-      { size: 'A2', quantity: plateResults.plates.A2, unit_cost: parseFloat(materialsData.platesA2Cost || 0) },
-      { size: 'A3', quantity: plateResults.plates.A3, unit_cost: parseFloat(materialsData.platesA3Cost || 0) }
+      { size: 'A1', quantity: plateResults.plates.A1, unit_cost: parseFloat(pressData.platesA1Cost || 0) },
+      { size: 'A2', quantity: plateResults.plates.A2, unit_cost: parseFloat(pressData.platesA2Cost || 0) },
+      { size: 'A3', quantity: plateResults.plates.A3, unit_cost: parseFloat(pressData.platesA3Cost || 0) }
     ],
     machines: machinesArray,
     processes: [], // Empty for now
     binding: {
-      bindings: (bindingData.bindings || []).map(b => ({
+      bindings: (postPressData.bindings || []).map(b => ({
         binding_id: parseInt(b.id),
         cost: parseFloat(b.cost || 0)
       }))
     },
     additional_costs: {
-      design_pages: parseFloat(additionalCostsData.designPages || 0),
-      design_rate: parseFloat(additionalCostsData.designRate || 50000),
-      typesetting_pages: parseFloat(additionalCostsData.typesettingPages || 0),
-      typesetting_rate: parseFloat(additionalCostsData.typesettingRate || 30000),
+      design_pages: parseFloat(prepressData.designPages || 0),
+      design_rate: parseFloat(prepressData.designRate || 50000),
+      typesetting_pages: parseFloat(prepressData.typesettingPages || 0),
+      typesetting_rate: parseFloat(prepressData.typesettingRate || 30000),
+      ctp_cost: parseFloat(prepressData.ctpCost || 0),
       wastage_percent: parseFloat(additionalCostsData.wastagePercent || 5),
       wastage_cost: 0, // Will be calculated
       subcontract_description: additionalCostsData.subcontractDescription || '',
@@ -525,7 +546,7 @@ function buildCostingDataFromDraft(allData) {
       transport_cost: 0, // Will be calculated
       overhead_percent: parseFloat(additionalCostsData.overheadPercent || 10),
       overhead_cost: 0, // Will be calculated
-      special_processes_total: (specialProcessesData.specialProcesses || []).reduce((sum, p) => sum + parseFloat(p.cost || 0), 0)
+      special_processes_total: (postPressData.specialProcesses || []).reduce((sum, p) => sum + parseFloat(p.cost || 0), 0)
     }
   };
 }
@@ -549,7 +570,6 @@ async function generateQuotation(jobId) {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
-    showStatus('Quotation downloaded successfully!');
   } catch (error) {
     console.error('Quotation generation error:', error);
     showStatus(`Error generating quotation: ${error.message}`, 'error');
@@ -648,7 +668,6 @@ async function loadJobForEdit(jobId) {
     currentWizardStep = 0;
     showWizardSection(currentWizardStep);
     
-    showStatus(`Loaded job ${job.name}`);
   } catch (error) {
     console.error('Error loading job:', error);
   }
@@ -870,7 +889,6 @@ navCostingBtn.addEventListener('click', async () => {
     console.log('Showing wizard section:', currentWizardStep);
     showWizardSection(currentWizardStep); // Show first section
     console.log('Cost sheet loaded');
-    showStatus('Cost sheet loaded');
   } catch (error) {
     console.error('Error loading cost sheet data:', error);
   }
@@ -887,22 +905,13 @@ newJobBtn.addEventListener('click', () => {
   // Reset dynamic sections
   resetMaterials();
   resetMachines();
-  resetBindingAndProcesses();
+  resetProcesses();
   // Reset wizard to first step
   currentWizardStep = 0;
   showWizardSection(0);
   updateCostSummary();
   showSection(costingSection);
   setActiveNav(navCostingBtn);
-});
-
-testDbBtn.addEventListener('click', async () => {
-  try {
-    const data = await apiRequest('/test');
-    showStatus(`Database connected! Server time: ${new Date(data.time.now).toLocaleString()}`);
-  } catch (error) {
-    // Error already shown by apiRequest
-  }
 });
 
 cancelCostingBtn.addEventListener('click', () => {
@@ -1268,7 +1277,6 @@ if (saveJobBtn) {
   saveJobBtn.addEventListener('click', async () => {
     console.log('Save job button clicked');
     try {
-      showStatus('Collecting form data...', 'success');
       const allData = collectAllData();
       const costingData = buildCostingDataFromDraft(allData);
       
@@ -1298,7 +1306,6 @@ if (saveJobBtn) {
         return;
       }
 
-      showStatus('Sending data to server...', 'success');
       console.log('Submitting costing data:', costingData);
 
       const result = await apiRequest('/costing', {
@@ -2149,7 +2156,6 @@ document.addEventListener('DOMContentLoaded', () => {
   showSection(homeSection);
   setActiveNav(navHomeBtn);
   displayJobSummary();
-  showStatus('Application loaded. Server should be running on port 3000.');
   
   // Initialize wizard
   console.log('Initializing wizard, currentWizardStep:', currentWizardStep);
