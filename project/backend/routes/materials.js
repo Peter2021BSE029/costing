@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
+const { authenticateToken } = require('./auth');
 
 // Get all materials
 router.get('/', async (req, res) => {
@@ -15,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create material
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   console.log('[MATERIALS] POST /api/materials - Request body:', req.body);
   const { name, category, unit_of_measure, unit_cost } = req.body;
 
@@ -37,7 +38,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update material
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, category, unit_of_measure, unit_cost } = req.body;
 
@@ -64,7 +65,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete material
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {

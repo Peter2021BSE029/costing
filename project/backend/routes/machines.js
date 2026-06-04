@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
+const { authenticateToken } = require('./auth');
 
 // Get all machines
 router.get('/', async (req, res) => {
@@ -15,7 +16,7 @@ router.get('/', async (req, res) => {
 });
 
 // Create machine
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   console.log('[MACHINES] POST /api/machines - Request body:', req.body);
   const { name, cost_per_impression, setup_cost } = req.body;
 
@@ -37,7 +38,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update machine
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { name, cost_per_impression, setup_cost } = req.body;
 
@@ -63,7 +64,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete machine
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
 
   try {

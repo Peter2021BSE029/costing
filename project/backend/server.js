@@ -46,9 +46,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
 
-// Redirect root to frontend
+// Redirect root to login
 app.get('/', (req, res) => {
-  res.redirect('/index.html');
+  res.redirect('/login.html');
 });
 
 app.get('/api', (req, res) => {
@@ -91,6 +91,9 @@ app.use('/api/costing', costingRouter);
 
 const systemSettingsRouter = require('./routes/system-settings');
 app.use('/api/system-settings', systemSettingsRouter);
+
+const authRouter = require('./routes/auth');
+app.use('/api/auth', authRouter.router);
 
 const server = app.listen(PORT, HOST, () => {
   console.log(`[STARTUP] Server running on http://${HOST}:${PORT}`);

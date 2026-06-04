@@ -5,6 +5,51 @@ const API_BASE = (function () {
   return 'http://127.0.0.1:3000/api';
 })();
 
+// Authentication check
+function checkAuth() {
+  const token = localStorage.getItem('token');
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+  if (!token || !user) {
+    window.location.href = 'login.html';
+    return false;
+  }
+
+  // Check role for admin.html - only stores
+  if (user.role !== 'stores') {
+    alert('Access denied. Only stores users can access admin.');
+    window.location.href = 'login.html';
+    return false;
+  }
+
+  return true;
+}
+
+// Logout function
+function logout() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  window.location.href = 'login.html';
+}
+
+// Add logout button to nav
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.querySelector('nav');
+  if (nav) {
+    const logoutBtn = document.createElement('button');
+    logoutBtn.id = 'logout-btn';
+    logoutBtn.className = 'nav-button';
+    logoutBtn.innerHTML = '<i class="bi bi-box-arrow-right"></i> Logout';
+    logoutBtn.onclick = logout;
+    nav.appendChild(logoutBtn);
+  }
+});
+
+// Check auth on load
+if (!checkAuth()) {
+  // Will redirect
+}
+
 const statusDiv = document.getElementById('status');
 const refreshAdminDataBtn = document.getElementById('refresh-admin-data');
 const materialsTableBody = document.querySelector('#admin-materials-table tbody');
@@ -22,12 +67,19 @@ function showStatus(message, type = 'success') {
 }
 
 async function apiRequest(endpoint, options = {}) {
+  const token = localStorage.getItem('token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
+      headers,
       ...options
     });
 

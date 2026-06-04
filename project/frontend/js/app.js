@@ -8,6 +8,51 @@ const API_BASE = (function () {
 
 console.log('Script start');
 
+// Authentication check
+function checkAuth() {
+  const token = localStorage.getItem('token');
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+  if (!token || !user) {
+    window.location.href = 'login.html';
+    return false;
+  }
+
+  // Check role for index.html - allow costing or stores
+  if (window.location.pathname.includes('index.html') && !['costing', 'stores'].includes(user.role)) {
+    alert('Access denied');
+    window.location.href = 'login.html';
+    return false;
+  }
+
+  return true;
+}
+
+// Logout function
+function logout() {
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  window.location.href = 'login.html';
+}
+
+// Add logout button to nav
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.querySelector('nav');
+  if (nav) {
+    const logoutBtn = document.createElement('button');
+    logoutBtn.id = 'logout-btn';
+    logoutBtn.className = 'nav-button';
+    logoutBtn.innerHTML = '<i class="bi bi-box-arrow-right"></i> Logout';
+    logoutBtn.onclick = logout;
+    nav.appendChild(logoutBtn);
+  }
+});
+
+// Check auth on load
+if (!checkAuth()) {
+  // Will redirect
+}
+
 // DOM Elements
 const navHomeBtn = document.getElementById('nav-home');
 const navCostingBtn = document.getElementById('nav-costing');
@@ -41,6 +86,8 @@ const clientTypeSelect = document.getElementById('client-type');
 const marginTierDisplay = document.getElementById('margin-tier-display');
 
 // Material management
+const addPaperBtn = document.getElementById('add-paper');
+const paperMaterialsList = document.getElementById('paper-materials-list');
 const addMaterialBtn = document.getElementById('add-material');
 const materialsList = document.getElementById('materials-list');
 
@@ -130,23 +177,40 @@ function showStatus(message, type = 'success') {
 }
 
 async function apiRequest(endpoint, options = {}) {
+  const token = localStorage.getItem('token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   try {
     const response = await fetch(`${API_BASE}${endpoint}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
+      headers,
       ...options
     });
 
     if (!response.ok) {
       const body = await response.text();
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        showStatus('Session expired or invalid token. Redirecting to login...', 'error');
+        setTimeout(() => window.location.href = 'login.html', 1200);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+      }
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
     }
 
     return await response.json();
   } catch (error) {
     console.error('API Error:', error);
+    if (error.message.includes('401') || error.message.includes('403')) {
+      return;
+    }
     showStatus(`Error: ${error.message}`, 'error');
     throw error;
   }
@@ -187,9 +251,11 @@ function updateWizardNavigation() {
   wizardNextBtn.disabled = currentWizardStep === wizardSections.length - 1;
   wizardStepDisplay.textContent = `Step ${currentWizardStep + 1} of ${wizardSections.length}: ${sectionNames[wizardSections[currentWizardStep]]}`;
   
-  // Check if all sections are saved
+  // Check if all sections are saved, excluding the summary page because it has no input data.
   const draft = getDraftData();
-  const allSaved = wizardSections.every(section => draft[section]);
+  const allSaved = wizardSections
+    .filter(section => section !== 'summary')
+    .every(section => draft[section]);
   saveJobBtn.disabled = !allSaved;
 }
 
@@ -213,6 +279,7 @@ function saveCurrentSection() {
     console.log('Saving current section:', currentWizardStep);
     const section = wizardSections[currentWizardStep];
     console.log('Section name:', section);
+
     const data = collectSectionData(section);
     console.log('Collected data:', data);
     saveSectionData(section, data);
@@ -263,6 +330,17 @@ function collectSectionData(section) {
           });
         }
       });
+      const paperMaterials = [];
+      const paperMaterialIds = formData.getAll('paper-material-id[]');
+      const paperMaterialQuantities = formData.getAll('paper-material-quantity[]');
+      paperMaterialIds.forEach((id, index) => {
+        if (id) {
+          paperMaterials.push({
+            id: id,
+            quantity: paperMaterialQuantities[index] || 0
+          });
+        }
+      });
       const machines = [];
       const machineIds = formData.getAll('machine-id[]');
       const machineImpressions = formData.getAll('machine-impressions[]');
@@ -275,6 +353,7 @@ function collectSectionData(section) {
         }
       });
       return {
+        paperMaterials,
         materials,
         machines,
         platesA1Cost: formData.get('plates-a1-cost'),
@@ -346,11 +425,29 @@ function populateSectionData(section, data) {
       if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
       if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
       if (data.ctpCost) document.getElementById('ctp-cost').value = data.ctpCost;
-      updatePrepressSubtotal();
+      updateDesignSubtotal();
+      updateTypesettingSubtotal();
       break;
     case 'press':
-      // Handle combined materials and machines data
-      // Clear existing materials
+      // Handle paper stock materials first
+      resetPaperMaterials();
+      if (data.paperMaterials && data.paperMaterials.length > 0) {
+        data.paperMaterials.forEach((material, index) => {
+          if (index > 0) addPaperItem();
+          const row = paperMaterialsList.querySelectorAll('.paper-material-item')[index];
+          if (row) {
+            const select = row.querySelector('select[name="paper-material-id[]"]');
+            const quantityInput = row.querySelector('input[name="paper-material-quantity[]"]');
+            if (select) select.value = material.id;
+            if (quantityInput) quantityInput.value = material.quantity;
+            updatePaperMaterialSelection(select);
+            updateMaterialCost(select);
+            updateMaterialSubtotal(quantityInput);
+          }
+        });
+      }
+
+      // Handle general materials
       resetMaterials();
       if (data.materials && data.materials.length > 0) {
         data.materials.forEach((material, index) => {
@@ -462,6 +559,18 @@ function buildCostingDataFromDraft(allData) {
 
   // Build materials array
   const materialsArray = [];
+  if (pressData.paperMaterials) {
+    pressData.paperMaterials.forEach(mat => {
+      const material = materials.find(m => m.id == mat.id);
+      if (material) {
+        materialsArray.push({
+          material_id: parseInt(mat.id),
+          quantity: parseFloat(mat.quantity || 0),
+          unit_cost: material.unit_cost
+        });
+      }
+    });
+  }
   if (pressData.materials) {
     pressData.materials.forEach(mat => {
       const material = materials.find(m => m.id == mat.id);
@@ -642,6 +751,7 @@ async function loadCostSheetData() {
   }
   populateMarginTiers(marginTiers);
   populateMaterials();
+  populatePaperMaterials();
   populateMachines();
   populateBindings();
   populateSpecialProcesses();
@@ -782,10 +892,28 @@ function populateCostSheetFromJob(job) {
   // resetProcesses();
 
   if (Array.isArray(job.materials) && job.materials.length > 0) {
+    let materialIndex = 0;
+    let paperIndex = 0;
     job.materials.forEach((material, index) => {
-      if (index > 0) addMaterialItem();
-      const row = materialsList.querySelectorAll('.material-item')[index];
-      if (row) setMaterialRow(row, material);
+      if (isPaperMaterial(material)) {
+        if (paperIndex > 0) addPaperItem();
+        const row = paperMaterialsList.querySelectorAll('.paper-material-item')[paperIndex];
+        if (row) {
+          const select = row.querySelector('select[name="paper-material-id[]"]');
+          const quantityInput = row.querySelector('input[name="paper-material-quantity[]"]');
+          if (select) select.value = material.material_id;
+          if (quantityInput) quantityInput.value = material.quantity;
+          updatePaperMaterialSelection(select);
+          updateMaterialCost(select);
+          updateMaterialSubtotal(quantityInput);
+        }
+        paperIndex += 1;
+      } else {
+        if (materialIndex > 0) addMaterialItem();
+        const row = materialsList.querySelectorAll('.material-item')[materialIndex];
+        if (row) setMaterialRow(row, material);
+        materialIndex += 1;
+      }
     });
   }
 
@@ -880,6 +1008,7 @@ navCostingBtn.addEventListener('click', async () => {
       // Data already loaded, just repopulate UI
       populateMarginTiers(marginTiers);
       populateMaterials();
+      populatePaperMaterials();
       populateMachines();
       populateBindings();
       populateSpecialProcesses();
@@ -1012,6 +1141,42 @@ materialsList.addEventListener('input', (e) => {
     updateMaterialSubtotal(e.target);
   }
 });
+
+if (addPaperBtn) {
+  addPaperBtn.addEventListener('click', () => addPaperItem());
+}
+
+if (paperMaterialsList) {
+  paperMaterialsList.addEventListener('click', (e) => {
+    if (e.target.classList.contains('remove-paper-material')) {
+      const item = e.target.closest('.paper-material-item');
+      const allItems = paperMaterialsList.querySelectorAll('.paper-material-item');
+      if (allItems.length > 1) {
+        item.remove();
+        updateCostSummary();
+      } else {
+        const selects = item.querySelectorAll('select');
+        const inputs = item.querySelectorAll('input');
+        selects.forEach(select => select.value = '');
+        inputs.forEach(input => input.value = '');
+        updateCostSummary();
+      }
+    }
+  });
+
+  paperMaterialsList.addEventListener('change', (e) => {
+    if (e.target.name === 'paper-material-id[]') {
+      updatePaperMaterialSelection(e.target);
+      updateMaterialCost(e.target);
+    }
+  });
+
+  paperMaterialsList.addEventListener('input', (e) => {
+    if (e.target.name === 'paper-material-quantity[]') {
+      updateMaterialSubtotal(e.target);
+    }
+  });
+}
 
 // Machine management
 addMachineBtn.addEventListener('click', () => {
@@ -1293,20 +1458,18 @@ if (saveJobBtn) {
         showStatus('Job name is required', 'error');
         return;
       }
-      if (!costingData.job.quantity) {
-        showStatus('Job quantity is required', 'error');
+      if (!costingData.job.quantity || Number.isNaN(Number(costingData.job.quantity))) {
+        showStatus('Job quantity is required and must be a valid number', 'error');
         return;
       }
       if (!costingData.job.page_size) {
         showStatus('Book page size selection is required', 'error');
         return;
       }
-      if (!costingData.job.pages_per_copy) {
-        showStatus('Pages per copy is required', 'error');
+      if (!costingData.job.pages_per_copy || Number.isNaN(Number(costingData.job.pages_per_copy))) {
+        showStatus('Pages per copy is required and must be a valid number', 'error');
         return;
       }
-
-      console.log('Submitting costing data:', costingData);
 
       const result = await apiRequest('/costing', {
         method: 'POST',
@@ -1425,14 +1588,20 @@ function displayClients(clients) {
 }
 
 // Comprehensive Costing Form Functions
+function isPaperMaterial(material) {
+  const name = (material.name || '').toString().toLowerCase();
+  const category = (material.category || '').toString().toLowerCase();
+  if (name.includes('plate')) return false;
+  return category.includes('paper') || category.includes('stock') || /\b(a[1-6]|b[0-9]+)\b/.test(name) || name.includes('paper');
+}
+
 function populateMaterials() {
   const materialSelects = document.querySelectorAll('select[name="material-id[]"]');
   materialSelects.forEach(select => {
     const currentValue = select.value; // Preserve current selection
     select.innerHTML = '<option value="">Select material...</option>';
     materials.forEach(material => {
-      // Skip materials that contain "plate" in their name (case insensitive)
-      if (material.name.toLowerCase().includes('plate')) {
+      if (isPaperMaterial(material) || material.name.toLowerCase().includes('plate')) {
         return;
       }
       const option = document.createElement('option');
@@ -1441,6 +1610,22 @@ function populateMaterials() {
       select.appendChild(option);
     });
     select.value = currentValue; // Restore selection
+  });
+}
+
+function populatePaperMaterials() {
+  const paperSelects = document.querySelectorAll('select[name="paper-material-id[]"]');
+  paperSelects.forEach(select => {
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">Select paper...</option>';
+    materials.forEach(material => {
+      if (!isPaperMaterial(material)) return;
+      const option = document.createElement('option');
+      option.value = material.id;
+      option.textContent = `${material.name} (${material.unit_cost} UGX/${material.unit_of_measure || 'unit'})`;
+      select.appendChild(option);
+    });
+    select.value = currentValue;
   });
 }
 
@@ -1509,6 +1694,38 @@ function addMaterialItem() {
   `;
   materialsList.appendChild(materialItem);
   populateMaterials();
+}
+
+function addPaperItem() {
+  const paperItem = document.createElement('tr');
+  paperItem.className = 'paper-material-item';
+  paperItem.innerHTML = `
+    <td>
+      <select name="paper-material-id[]" required>
+        <option value="">Select paper...</option>
+      </select>
+    </td>
+    <td><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" required></td>
+    <td><input type="number" name="paper-material-cost[]" min="0" step="0.01" readonly></td>
+    <td><input type="number" name="paper-material-subtotal[]" readonly></td>
+    <td><button type="button" class="remove-paper-material">🗑️</button></td>
+  `;
+  paperMaterialsList.appendChild(paperItem);
+  populatePaperMaterials();
+}
+
+function resetPaperMaterials() {
+  const paperMaterialItems = paperMaterialsList.querySelectorAll('.paper-material-item');
+  for (let i = 1; i < paperMaterialItems.length; i++) {
+    paperMaterialItems[i].remove();
+  }
+  const firstItem = paperMaterialsList.querySelector('.paper-material-item');
+  if (firstItem) {
+    const selects = firstItem.querySelectorAll('select');
+    const inputs = firstItem.querySelectorAll('input');
+    selects.forEach(select => select.value = '');
+    inputs.forEach(input => input.value = '');
+  }
 }
 
 function addMachineItem() {
@@ -1608,9 +1825,9 @@ function resetProcesses() {
 function updateMaterialCost(selectElement) {
   const materialId = selectElement.value;
   const material = materials.find(m => m.id == materialId);
-  const item = selectElement.closest('.material-item');
-  const costInput = item.querySelector('input[name="material-cost[]"]');
-  const quantityInput = item.querySelector('input[name="material-quantity[]"]');
+  const item = selectElement.closest('tr');
+  const costInput = item.querySelector('input[name$="material-cost[]"]');
+  const quantityInput = item.querySelector('input[name$="material-quantity[]"]');
 
   if (material && costInput && quantityInput) {
     costInput.value = material.unit_cost;
@@ -1622,9 +1839,9 @@ function updateMaterialCost(selectElement) {
 }
 
 function updateMaterialSubtotal(quantityInput) {
-  const item = quantityInput.closest('.material-item');
-  const costInput = item.querySelector('input[name="material-cost[]"]');
-  const subtotalInput = item.querySelector('input[name="material-subtotal[]"]');
+  const item = quantityInput.closest('tr');
+  const costInput = item.querySelector('input[name$="material-cost[]"]');
+  const subtotalInput = item.querySelector('input[name$="material-subtotal[]"]');
 
   if (costInput && subtotalInput) {
     const subtotal = parseFloat(costInput.value || 0) * parseFloat(quantityInput.value || 0);
@@ -1632,6 +1849,30 @@ function updateMaterialSubtotal(quantityInput) {
     // Store subtotal for later calculation
     item.dataset.subtotal = subtotal;
     updateCostSummary();
+  }
+}
+
+function parsePaperSizeFromMaterial(material) {
+  if (!material || !material.name) return null;
+  const name = material.name.toString().toUpperCase();
+  const match = name.match(/\b(A[1-6]|B\d+)\b/);
+  if (match) return match[1];
+  if (name.includes('A1')) return 'A1';
+  if (name.includes('A2')) return 'A2';
+  if (name.includes('A3')) return 'A3';
+  if (name.includes('A4')) return 'A4';
+  if (name.includes('A5')) return 'A5';
+  if (name.includes('A6')) return 'A6';
+  return null;
+}
+
+function updatePaperMaterialSelection(selectElement) {
+  const material = materials.find(m => m.id == selectElement.value);
+  if (!material) return;
+  const size = parsePaperSizeFromMaterial(material);
+  if (size && jobPageSize) {
+    jobPageSize.value = size;
+    updatePlateSummary();
   }
 }
 

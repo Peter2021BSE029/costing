@@ -3,9 +3,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
+const { authenticateToken } = require('./auth');
 
 // Submit comprehensive costing
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   console.log('[COSTING] POST /api/costing - Request received');
   console.log('[COSTING] Headers:', JSON.stringify(req.headers, null, 2));
   console.log('[COSTING] POST /api/costing - Request body:', JSON.stringify(req.body, null, 2));
