@@ -427,6 +427,7 @@ function populateSectionData(section, data) {
       if (data.ctpCost) document.getElementById('ctp-cost').value = data.ctpCost;
       updateDesignSubtotal();
       updateTypesettingSubtotal();
+      updatePrepressTotal();
       break;
     case 'press':
       // Handle paper stock materials first
@@ -1398,6 +1399,8 @@ document.getElementById('typesetting-rate').addEventListener('input', () => {
   updateTypesettingSubtotal();
 });
 
+document.getElementById('ctp-cost').addEventListener('input', updatePrepressTotal);
+
 document.getElementById('wastage-percent').addEventListener('input', updateCostSummary);
 document.getElementById('subcontract-cost').addEventListener('input', updateCostSummary);
 document.getElementById('binding-other-cost')?.addEventListener('input', updateCostSummary);
@@ -1654,7 +1657,7 @@ function populateBindings() {
       <input type="checkbox" name="binding-selected[]" value="${binding.id}" data-binding-id="${binding.id}">
       <span>${binding.method}</span>
       <input type="number" name="binding-cost[]" min="0" step="0.01" placeholder="Cost" readonly>
-      <button type="button" class="calculator-btn" title="Calculate Binding Cost" data-binding-id="${binding.id}"><img src="../images/icons/calculator.png" alt="Calc" class="calculator-icon"></button>
+      <button type="button" class="calculator-btn" title="Calculate Binding Cost" data-binding-id="${binding.id}"><i class="bi bi-calculator"></i></button>
     `;
     bindingList.appendChild(bindingItem);
   });
@@ -1672,7 +1675,7 @@ function populateSpecialProcesses() {
         <span class="process-rate">(${process.rate_per_unit} UGX/${process.unit_type || 'unit'})</span>
       </div>
       <input type="number" name="special-process-cost[]" data-process-id="${process.id}" min="0" step="0.01" placeholder="Cost" readonly>
-      <button type="button" class="calculator-btn" title="Calculate" data-process-id="${process.id}"><img src="../images/icons/calculator.png" alt="Calc" class="calculator-icon"></button>
+      <button type="button" class="calculator-btn" title="Calculate" data-process-id="${process.id}"><i class="bi bi-calculator"></i></button>
     `;
     specialProcessesList.appendChild(processItem);
   });
@@ -1761,7 +1764,7 @@ function addProcessItem() {
     </td>
     <td>
       <input type="number" name="process-rate[]" min="0" step="0.01" readonly>
-      <button type="button" class="calculator-btn" title="Calculate Rate">🧮</button>
+      <button type="button" class="calculator-btn" title="Calculate Rate"><i class="bi bi-calculator"></i></button>
     </td>
     <td>
       <input type="number" name="process-subtotal[]" readonly>
@@ -1947,6 +1950,7 @@ function updateDesignSubtotal() {
   const rate = parseFloat(document.getElementById('design-rate').value || 0);
   const subtotal = pages * rate;
   document.getElementById('design-subtotal').value = subtotal.toFixed(2);
+  updatePrepressTotal();
   updateCostSummary();
 }
 
@@ -1955,7 +1959,19 @@ function updateTypesettingSubtotal() {
   const rate = parseFloat(document.getElementById('typesetting-rate').value || 0);
   const subtotal = pages * rate;
   document.getElementById('typesetting-subtotal').value = subtotal.toFixed(2);
+  updatePrepressTotal();
   updateCostSummary();
+}
+
+function updatePrepressTotal() {
+  const designSubtotal = parseFloat(document.getElementById('design-subtotal')?.value || 0);
+  const typesettingSubtotal = parseFloat(document.getElementById('typesetting-subtotal')?.value || 0);
+  const ctpCost = parseFloat(document.getElementById('ctp-cost')?.value || 0);
+  const prepressTotal = designSubtotal + typesettingSubtotal + ctpCost;
+  const prepressTotalElem = document.getElementById('prepress-subtotal');
+  if (prepressTotalElem) {
+    prepressTotalElem.value = prepressTotal.toFixed(2);
+  }
 }
 
 function updateCostSummary() {
@@ -2045,36 +2061,47 @@ function updateCostSummary() {
   const additionalTotal = designSubtotal + typesettingSubtotal + wastageCost + subcontractCost + storageCost + transportCost + overheadCost;
   if (designSubtotalInput) designSubtotalInput.value = designSubtotal.toFixed(2);
   if (typesettingSubtotalInput) typesettingSubtotalInput.value = typesettingSubtotal.toFixed(2);
-  document.getElementById('design-total').textContent = designSubtotal.toFixed(2);
-  document.getElementById('typesetting-total').textContent = typesettingSubtotal.toFixed(2);
-  document.getElementById('wastage-total').textContent = wastageCost.toFixed(2);
-  document.getElementById('subcontract-total').textContent = subcontractCost.toFixed(2);
-  document.getElementById('storage-total').textContent = storageCost.toFixed(2);
-  document.getElementById('transport-total').textContent = transportCost.toFixed(2);
-  document.getElementById('overhead-total').textContent = overheadCost.toFixed(2);
+  const designTotalElem = document.getElementById('design-total');
+  if (designTotalElem) designTotalElem.textContent = designSubtotal.toFixed(2);
+  const typesettingTotalElem = document.getElementById('typesetting-total');
+  if (typesettingTotalElem) typesettingTotalElem.textContent = typesettingSubtotal.toFixed(2);
+  const wastageTotalElem = document.getElementById('wastage-total');
+  if (wastageTotalElem) wastageTotalElem.textContent = wastageCost.toFixed(2);
+  const subcontractTotalElem = document.getElementById('subcontract-total');
+  if (subcontractTotalElem) subcontractTotalElem.textContent = subcontractCost.toFixed(2);
+  const storageTotalElem = document.getElementById('storage-total');
+  if (storageTotalElem) storageTotalElem.textContent = storageCost.toFixed(2);
+  const transportTotalElem = document.getElementById('transport-total');
+  if (transportTotalElem) transportTotalElem.textContent = transportCost.toFixed(2);
+  const overheadTotalElem = document.getElementById('overhead-total');
+  if (overheadTotalElem) overheadTotalElem.textContent = overheadCost.toFixed(2);
 
   // Calculate grand total
   const grandTotal = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + additionalTotal;
-  document.getElementById('grand-total').textContent = grandTotal.toFixed(2);
+  const grandTotalElem = document.getElementById('grand-total');
+  if (grandTotalElem) grandTotalElem.textContent = grandTotal.toFixed(2);
 
   // Calculate VAT (18%)
   const vatAmount = grandTotal * 0.18;
-  document.getElementById('vat-amount').textContent = vatAmount.toFixed(2);
+  const vatAmountElem = document.getElementById('vat-amount');
+  if (vatAmountElem) vatAmountElem.textContent = vatAmount.toFixed(2);
 
   // Calculate with margin
-  const marginTierId = document.getElementById('margin-tier').value;
+  const marginTierId = document.getElementById('margin-tier')?.value;
   const marginTier = marginTiers.find(t => t.id == marginTierId);
   let marginAmount = 0;
+  const marginAmountElem = document.getElementById('margin-amount');
   if (marginTier) {
     marginAmount = grandTotal * (marginTier.margin_percentage / 100);
-    document.getElementById('margin-amount').textContent = marginAmount.toFixed(2);
+    if (marginAmountElem) marginAmountElem.textContent = marginAmount.toFixed(2);
   } else {
-    document.getElementById('margin-amount').textContent = '0.00';
+    if (marginAmountElem) marginAmountElem.textContent = '0.00';
   }
 
   // Calculate final total
   const finalTotal = grandTotal + vatAmount + marginAmount;
-  document.getElementById('final-total').textContent = finalTotal.toFixed(2);
+  const finalTotalElem = document.getElementById('final-total') || document.getElementById('invoice-total');
+  if (finalTotalElem) finalTotalElem.textContent = finalTotal.toFixed(2);
 }
 
 function getPaperSizeOrdinal(size) {
@@ -2142,9 +2169,10 @@ function calculatePlateRequirements(pagesPerCopy, targetSize) {
 function updatePlateSummary() {
   const pageSize = jobPageSize?.value;
   const pagesPerCopy = parseInt(jobPagesPerCopy?.value || '0', 10);
+  const stockSheetsTotalElem = document.getElementById('stock-sheets-total');
 
   if (!pageSize || !pagesPerCopy || pagesPerCopy <= 0) {
-    document.getElementById('stock-sheets-total').textContent = '0';
+    if (stockSheetsTotalElem) stockSheetsTotalElem.textContent = '0';
     if (platesA1) platesA1.value = '0';
     if (platesA2) platesA2.value = '0';
     if (platesA3) platesA3.value = '0';
@@ -2154,7 +2182,7 @@ function updatePlateSummary() {
   }
 
   const { plates, totalPlates, stockSheets } = calculatePlateRequirements(pagesPerCopy, pageSize);
-  document.getElementById('stock-sheets-total').textContent = stockSheets.toString();
+  if (stockSheetsTotalElem) stockSheetsTotalElem.textContent = stockSheets.toString();
   if (platesA1) platesA1.value = plates.A1;
   if (platesA2) platesA2.value = plates.A2;
   if (platesA3) platesA3.value = plates.A3;
@@ -2175,12 +2203,15 @@ function updatePlatesCostSummary() {
   const a2Subtotal = a2Qty * a2Cost;
   const a3Subtotal = a3Qty * a3Cost;
   
-  document.getElementById('plates-a1-subtotal').value = a1Subtotal.toFixed(2);
-  document.getElementById('plates-a2-subtotal').value = a2Subtotal.toFixed(2);
-  document.getElementById('plates-a3-subtotal').value = a3Subtotal.toFixed(2);
+  const platesA1SubtotalElem = document.getElementById('plates-a1-subtotal');
+  if (platesA1SubtotalElem) platesA1SubtotalElem.value = a1Subtotal.toFixed(2);
+  const platesA2SubtotalElem = document.getElementById('plates-a2-subtotal');
+  if (platesA2SubtotalElem) platesA2SubtotalElem.value = a2Subtotal.toFixed(2);
+  const platesA3SubtotalElem = document.getElementById('plates-a3-subtotal');
+  if (platesA3SubtotalElem) platesA3SubtotalElem.value = a3Subtotal.toFixed(2);
   
-  const platesTotal = a1Subtotal + a2Subtotal + a3Subtotal;
-  document.getElementById('plates-total').textContent = platesTotal.toFixed(2);
+  const platesTotalElem = document.getElementById('plates-total');
+  if (platesTotalElem) platesTotalElem.textContent = platesTotal.toFixed(2);
 }
 
 function collectCostingData() {
