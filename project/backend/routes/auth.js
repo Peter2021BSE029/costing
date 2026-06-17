@@ -4,6 +4,13 @@ const User = require('../models/User');
 
 const router = express.Router();
 
+function getJwtSecret() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is required');
+  }
+  return process.env.JWT_SECRET;
+}
+
 // Login endpoint
 router.post('/login', async (req, res) => {
   try {
@@ -26,7 +33,7 @@ router.post('/login', async (req, res) => {
     // Create JWT token
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
+      getJwtSecret(),
       { expiresIn: '8h' }
     );
 
@@ -39,7 +46,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login error:', error.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -53,7 +60,15 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key', (err, user) => {
+  let jwtSecret;
+  try {
+    jwtSecret = getJwtSecret();
+  } catch (error) {
+    console.error('Auth configuration error:', error.message);
+    return res.status(500).json({ error: 'Authentication is not configured' });
+  }
+
+  jwt.verify(token, jwtSecret, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }

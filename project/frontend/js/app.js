@@ -344,11 +344,13 @@ function collectSectionData(section) {
       const machines = [];
       const machineIds = formData.getAll('machine-id[]');
       const machineImpressions = formData.getAll('machine-impressions[]');
+      const machineSetupPercents = formData.getAll('machine-setup-percent[]');
       machineIds.forEach((id, index) => {
         if (id) {
           machines.push({
             id: id,
-            impressions: machineImpressions[index] || 0
+            impressions: machineImpressions[index] || 0,
+            setupPercent: machineSetupPercents[index] || 0
           });
         }
       });
@@ -478,8 +480,10 @@ function populateSectionData(section, data) {
           if (row) {
             const select = row.querySelector('select[name="machine-id[]"]');
             const impressionsInput = row.querySelector('input[name="machine-impressions[]"]');
+            const setupPercentInput = row.querySelector('input[name="machine-setup-percent[]"]');
             if (select) select.value = machine.id;
             if (impressionsInput) impressionsInput.value = machine.impressions;
+            if (setupPercentInput) setupPercentInput.value = machine.setupPercent || '0';
             updateMachineCost(select);
             updateMachineSubtotal(impressionsInput);
           }
@@ -510,6 +514,7 @@ function populateSectionData(section, data) {
       if (data.wastagePercent) document.getElementById('wastage-percent').value = data.wastagePercent;
       if (data.subcontractDescription) document.getElementById('subcontract-description').value = data.subcontractDescription;
       if (data.subcontractCost) document.getElementById('subcontract-cost').value = data.subcontractCost;
+      if (data.commissionCost) document.getElementById('commission-cost').value = data.commissionCost;
       if (data.storagePercent) document.getElementById('storage-percent').value = data.storagePercent;
       if (data.transportPercent) document.getElementById('transport-percent').value = data.transportPercent;
       if (data.overheadPercent) document.getElementById('overhead-percent').value = data.overheadPercent;
@@ -591,11 +596,16 @@ function buildCostingDataFromDraft(allData) {
     pressData.machines.forEach(mach => {
       const machine = machines.find(m => m.id == mach.id);
       if (machine) {
+        const impressions = parseInt(mach.impressions || 0);
+        const costPerImpression = parseFloat(machine.cost_per_impression || 0);
+        const setupPercent = parseFloat(mach.setupPercent || 0);
+        const runningCost = impressions * costPerImpression;
+        const setupCost = runningCost * (setupPercent / 100);
         machinesArray.push({
           machine_id: parseInt(mach.id),
-          impressions: parseInt(mach.impressions || 0),
-          setup_cost: machine.setup_cost,
-          cost_per_impression: machine.cost_per_impression
+          impressions,
+          setup_cost: setupCost,
+          cost_per_impression: costPerImpression
         });
       }
     });
@@ -605,6 +615,25 @@ function buildCostingDataFromDraft(allData) {
   const pageSize = clientJobData.jobPageSize;
   const pagesPerCopy = parseInt(clientJobData.jobPagesPerCopy || 0);
   const plateResults = calculatePlateRequirements(pagesPerCopy, pageSize);
+  const materialTotal = materialsArray.reduce((sum, material) => sum + (material.quantity * material.unit_cost), 0);
+  const platesTotal = (plateResults.plates.A1 * parseFloat(pressData.platesA1Cost || 0))
+    + (plateResults.plates.A2 * parseFloat(pressData.platesA2Cost || 0))
+    + (plateResults.plates.A3 * parseFloat(pressData.platesA3Cost || 0));
+  const machineTotal = machinesArray.reduce((sum, machine) => {
+    return sum + (machine.impressions * machine.cost_per_impression) + machine.setup_cost;
+  }, 0);
+  const bindingTotal = (postPressData.bindings || []).reduce((sum, binding) => sum + parseFloat(binding.cost || 0), 0);
+  const specialProcessesTotal = (postPressData.specialProcesses || []).reduce((sum, process) => sum + parseFloat(process.cost || 0), 0);
+  const designTotal = parseFloat(prepressData.designPages || 0) * parseFloat(prepressData.designRate || 0);
+  const typesettingTotal = parseFloat(prepressData.typesettingPages || 0) * parseFloat(prepressData.typesettingRate || 0);
+  const ctpCost = parseFloat(prepressData.ctpCost || 0);
+  const subcontractCost = parseFloat(additionalCostsData.subcontractCost || 0);
+  const percentageBase = materialTotal + platesTotal + machineTotal + bindingTotal + specialProcessesTotal
+    + designTotal + typesettingTotal + ctpCost + subcontractCost;
+  const wastagePercent = parseFloat(additionalCostsData.wastagePercent || 5);
+  const storagePercent = parseFloat(additionalCostsData.storagePercent || 5);
+  const transportPercent = parseFloat(additionalCostsData.transportPercent || 10);
+  const overheadPercent = parseFloat(additionalCostsData.overheadPercent || 10);
 
   return {
     client: {
@@ -642,30 +671,33 @@ function buildCostingDataFromDraft(allData) {
     },
     additional_costs: {
       design_pages: parseFloat(prepressData.designPages || 0),
-      design_rate: parseFloat(prepressData.designRate || 50000),
+      design_rate: parseFloat(prepressData.designRate || 0),
       typesetting_pages: parseFloat(prepressData.typesettingPages || 0),
-      typesetting_rate: parseFloat(prepressData.typesettingRate || 30000),
-      ctp_cost: parseFloat(prepressData.ctpCost || 0),
-      wastage_percent: parseFloat(additionalCostsData.wastagePercent || 5),
-      wastage_cost: 0, // Will be calculated
+      typesetting_rate: parseFloat(prepressData.typesettingRate || 0),
+      ctp_cost: ctpCost,
+      wastage_percent: wastagePercent,
+      wastage_cost: percentageBase * wastagePercent / 100,
       subcontract_description: additionalCostsData.subcontractDescription || '',
-      subcontract_cost: parseFloat(additionalCostsData.subcontractCost || 0),
-      storage_percent: parseFloat(additionalCostsData.storagePercent || 5),
-      storage_cost: 0, // Will be calculated
-      transport_percent: parseFloat(additionalCostsData.transportPercent || 10),
-      transport_cost: 0, // Will be calculated
-      overhead_percent: parseFloat(additionalCostsData.overheadPercent || 10),
-      overhead_cost: 0, // Will be calculated
-      special_processes_total: (postPressData.specialProcesses || []).reduce((sum, p) => sum + parseFloat(p.cost || 0), 0)
+      subcontract_cost: subcontractCost,
+      commission_cost: parseFloat(additionalCostsData.commissionCost || 0),
+      storage_percent: storagePercent,
+      storage_cost: percentageBase * storagePercent / 100,
+      transport_percent: transportPercent,
+      transport_cost: percentageBase * transportPercent / 100,
+      overhead_percent: overheadPercent,
+      overhead_cost: percentageBase * overheadPercent / 100,
+      special_processes_total: specialProcessesTotal
     }
   };
 }
 
 async function generateQuotation(jobId) {
   try {
+    const token = localStorage.getItem('token');
     const response = await fetch(`${API_BASE}/costing/quotation/${jobId}`, {
       method: 'GET',
-      mode: 'cors'
+      mode: 'cors',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
     if (!response.ok) {
       const body = await response.text();
@@ -851,9 +883,15 @@ function setMaterialRow(row, material) {
 function setMachineRow(row, machine) {
   const select = row.querySelector('select[name="machine-id[]"]');
   const impressionsInput = row.querySelector('input[name="machine-impressions[]"]');
+  const setupPercentInput = row.querySelector('input[name="machine-setup-percent[]"]');
   if (select) {
     select.value = machine.machine_id;
     if (impressionsInput) impressionsInput.value = machine.impressions;
+    if (setupPercentInput) {
+      const runningCost = parseFloat(machine.impressions || 0) * parseFloat(machine.cost_per_impression || 0);
+      const setupCost = parseFloat(machine.setup_cost || 0);
+      setupPercentInput.value = runningCost > 0 ? ((setupCost / runningCost) * 100).toFixed(2) : '0';
+    }
     updateMachineCost(select);
     if (impressionsInput) updateMachineSubtotal(impressionsInput);
   }
@@ -2028,8 +2066,10 @@ function updateCostSummary() {
   // Calculate additional costs
   const designSubtotalInput = document.getElementById('design-subtotal');
   const typesettingSubtotalInput = document.getElementById('typesetting-subtotal');
+  const ctpCostInput = document.getElementById('ctp-cost');
   const wastagePercentInput = document.getElementById('wastage-percent');
   const subcontractCostInput = document.getElementById('subcontract-cost');
+  const commissionCostInput = document.getElementById('commission-cost');
   const storagePercentInput = document.getElementById('storage-percent');
   const transportPercentInput = document.getElementById('transport-percent');
   const overheadPercentInput = document.getElementById('overhead-percent');
@@ -2040,8 +2080,10 @@ function updateCostSummary() {
 
   const designSubtotal = designSubtotalInput ? parseFloat(designSubtotalInput.value || 0) : 0;
   const typesettingSubtotal = typesettingSubtotalInput ? parseFloat(typesettingSubtotalInput.value || 0) : 0;
+  const ctpCost = ctpCostInput ? parseFloat(ctpCostInput.value || 0) : 0;
   const subcontractCost = subcontractCostInput ? parseFloat(subcontractCostInput.value || 0) : 0;
-  const baseCost = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + designSubtotal + typesettingSubtotal + subcontractCost;
+  const commissionCost = commissionCostInput ? parseFloat(commissionCostInput.value || 0) : 0;
+  const baseCost = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + designSubtotal + typesettingSubtotal + ctpCost + subcontractCost;
 
   const wastagePercent = wastagePercentInput ? parseFloat(wastagePercentInput.value || 0) : 0;
   const storagePercent = storagePercentInput ? parseFloat(storagePercentInput.value || 0) : 0;
@@ -2058,7 +2100,7 @@ function updateCostSummary() {
   if (transportCostInput) transportCostInput.value = transportCost.toFixed(2);
   if (overheadCostInput) overheadCostInput.value = overheadCost.toFixed(2);
 
-  const additionalTotal = designSubtotal + typesettingSubtotal + wastageCost + subcontractCost + storageCost + transportCost + overheadCost;
+  const additionalTotal = designSubtotal + typesettingSubtotal + ctpCost + wastageCost + subcontractCost + storageCost + transportCost + overheadCost;
   if (designSubtotalInput) designSubtotalInput.value = designSubtotal.toFixed(2);
   if (typesettingSubtotalInput) typesettingSubtotalInput.value = typesettingSubtotal.toFixed(2);
   const designTotalElem = document.getElementById('design-total');
@@ -2076,30 +2118,34 @@ function updateCostSummary() {
   const overheadTotalElem = document.getElementById('overhead-total');
   if (overheadTotalElem) overheadTotalElem.textContent = overheadCost.toFixed(2);
 
-  // Calculate grand total
-  const grandTotal = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + additionalTotal;
-  const grandTotalElem = document.getElementById('grand-total');
-  if (grandTotalElem) grandTotalElem.textContent = grandTotal.toFixed(2);
-
-  // Calculate VAT (18%)
-  const vatAmount = grandTotal * 0.18;
-  const vatAmountElem = document.getElementById('vat-amount');
-  if (vatAmountElem) vatAmountElem.textContent = vatAmount.toFixed(2);
+  const productionTotal = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + additionalTotal;
+  const productionTotalElem = document.getElementById('production-total');
+  if (productionTotalElem) productionTotalElem.textContent = productionTotal.toFixed(2);
 
   // Calculate with margin
   const marginTierId = document.getElementById('margin-tier')?.value;
   const marginTier = marginTiers.find(t => t.id == marginTierId);
   let marginAmount = 0;
-  const marginAmountElem = document.getElementById('margin-amount');
+  const marginAmountElem = document.getElementById('margin-amount') || document.getElementById('markup-amount');
   if (marginTier) {
-    marginAmount = grandTotal * (marginTier.margin_percentage / 100);
+    marginAmount = productionTotal * (marginTier.margin_percentage / 100);
     if (marginAmountElem) marginAmountElem.textContent = marginAmount.toFixed(2);
   } else {
     if (marginAmountElem) marginAmountElem.textContent = '0.00';
   }
 
-  // Calculate final total
-  const finalTotal = grandTotal + vatAmount + marginAmount;
+  const sellingPrice = productionTotal + commissionCost + marginAmount;
+  const commissionTotalElem = document.getElementById('commission-total');
+  if (commissionTotalElem) commissionTotalElem.textContent = commissionCost.toFixed(2);
+  const sellingPriceElem = document.getElementById('selling-price');
+  if (sellingPriceElem) sellingPriceElem.textContent = sellingPrice.toFixed(2);
+
+  // Calculate VAT (18%)
+  const vatAmount = sellingPrice * 0.18;
+  const vatAmountElem = document.getElementById('vat-amount');
+  if (vatAmountElem) vatAmountElem.textContent = vatAmount.toFixed(2);
+
+  const finalTotal = sellingPrice + vatAmount;
   const finalTotalElem = document.getElementById('final-total') || document.getElementById('invoice-total');
   if (finalTotalElem) finalTotalElem.textContent = finalTotal.toFixed(2);
 }
@@ -2202,6 +2248,7 @@ function updatePlatesCostSummary() {
   const a1Subtotal = a1Qty * a1Cost;
   const a2Subtotal = a2Qty * a2Cost;
   const a3Subtotal = a3Qty * a3Cost;
+  const platesTotal = a1Subtotal + a2Subtotal + a3Subtotal;
   
   const platesA1SubtotalElem = document.getElementById('plates-a1-subtotal');
   if (platesA1SubtotalElem) platesA1SubtotalElem.value = a1Subtotal.toFixed(2);
@@ -2239,17 +2286,19 @@ function collectCostingData() {
   const machines = [];
   const machineIds = formData.getAll('machine-id[]');
   const machineImpressions = formData.getAll('machine-impressions[]');
-  const machineSetups = formData.getAll('machine-setup[]');
+  const machineSetupPercents = formData.getAll('machine-setup-percent[]');
   const machineRunnings = formData.getAll('machine-running[]');
 
   machineIds.forEach((id, index) => {
     const impressions = parseInt(machineImpressions[index] || 0);
     const costPerImpression = parseFloat(machineRunnings[index] || 0);
+    const runningCost = impressions * costPerImpression;
+    const setupPercent = parseFloat(machineSetupPercents[index] || 0);
     if (id && impressions > 0 && !Number.isNaN(costPerImpression)) {
       machines.push({
         machine_id: parseInt(id),
         impressions,
-        setup_cost: parseFloat(machineSetups[index] || 0),
+        setup_cost: runningCost * setupPercent / 100,
         cost_per_impression: costPerImpression
       });
     }
@@ -2313,10 +2362,12 @@ function collectCostingData() {
       design_rate: parseFloat(formData.get('design-rate') || 0),
       typesetting_pages: parseFloat(formData.get('typesetting-pages') || 0),
       typesetting_rate: parseFloat(formData.get('typesetting-rate') || 0),
+      ctp_cost: parseFloat(formData.get('ctp-cost') || 0),
       wastage_percent: parseFloat(formData.get('wastage-percent') || 0),
       wastage_cost: parseFloat(formData.get('wastage-cost') || 0),
       subcontract_description: formData.get('subcontract-description') || '',
       subcontract_cost: parseFloat(formData.get('subcontract-cost') || 0),
+      commission_cost: parseFloat(formData.get('commission-cost') || 0),
       storage_percent: parseFloat(formData.get('storage-percent') || 0),
       storage_cost: parseFloat(formData.get('storage-cost') || 0),
       transport_percent: parseFloat(formData.get('transport-percent') || 0),

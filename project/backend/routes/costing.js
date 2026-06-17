@@ -5,11 +5,18 @@ const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
 const { authenticateToken } = require('./auth');
 
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatUGX(value) {
+  return toNumber(value).toLocaleString();
+}
+
 // Submit comprehensive costing
 router.post('/', authenticateToken, async (req, res) => {
   console.log('[COSTING] POST /api/costing - Request received');
-  console.log('[COSTING] Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('[COSTING] POST /api/costing - Request body:', JSON.stringify(req.body, null, 2));
 
   const {
     client,
@@ -111,8 +118,15 @@ router.post('/', authenticateToken, async (req, res) => {
     // 4. Insert machines
     for (const machine of machines) {
       await clientConn.query(
-        'INSERT INTO job_machines (job_id, machine_id, impressions, cost_per_impression) VALUES ($1, $2, $3, $4)',
-        [jobId, machine.machine_id, machine.impressions, machine.cost_per_impression]
+        'INSERT INTO job_machines (job_id, machine_id, impressions, setup_cost, cost_per_impression, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
+        [
+          jobId,
+          machine.machine_id,
+          machine.impressions,
+          toNumber(machine.setup_cost),
+          toNumber(machine.cost_per_impression),
+          (toNumber(machine.impressions) * toNumber(machine.cost_per_impression)) + toNumber(machine.setup_cost)
+        ]
       );
     }
     console.log('[COSTING] Inserted machines:', machines.length);
@@ -129,9 +143,10 @@ router.post('/', authenticateToken, async (req, res) => {
     // 6. Insert bindings if provided
     if (binding && binding.bindings && binding.bindings.length > 0) {
       for (const bind of binding.bindings) {
+        const bindingCost = toNumber(bind.cost);
         await clientConn.query(
-          'INSERT INTO job_bindings (job_id, binding_id, copies, cost_per_copy) VALUES ($1, $2, $3, $4)',
-          [jobId, bind.binding_id, job.quantity, bind.cost] // Assuming copies = job quantity
+          'INSERT INTO job_bindings (job_id, binding_id, copies, cost, cost_per_copy, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
+          [jobId, bind.binding_id, 1, bindingCost, bindingCost, bindingCost]
         );
       }
       console.log('[COSTING] Inserted bindings:', binding.bindings.length);
@@ -139,7 +154,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     // 7. Insert additional costs
     if (additional_costs) {
-      const additionalColumns = ['job_id', 'design_pages', 'design_rate', 'typesetting_pages', 'typesetting_rate', 'wastage_percent', 'wastage_cost', 'subcontract_description', 'subcontract_cost', 'storage_cost', 'transport_cost'];
+      const additionalColumns = ['job_id', 'design_pages', 'design_rate', 'typesetting_pages', 'typesetting_rate', 'wastage_percent', 'wastage_cost', 'subcontract_description', 'subcontract_cost', 'storage_percent', 'storage_cost', 'transport_percent', 'transport_cost'];
       const additionalValues = [
         jobId,
         additional_costs.design_pages || 0,
@@ -150,10 +165,12 @@ router.post('/', authenticateToken, async (req, res) => {
         additional_costs.wastage_cost || 0,
         additional_costs.subcontract_description || '',
         additional_costs.subcontract_cost || 0,
+        additional_costs.storage_percent || 5,
         additional_costs.storage_cost || 0,
+        additional_costs.transport_percent || 10,
         additional_costs.transport_cost || 0
       ];
-      const optionalAdditionalColumns = ['overhead_percent', 'overhead_cost', 'special_processes_total'];
+      const optionalAdditionalColumns = ['ctp_cost', 'commission_cost', 'overhead_percent', 'overhead_cost', 'special_processes_total'];
 
       const availableAdditionalColumns = (await clientConn.query(
         `SELECT column_name FROM information_schema.columns WHERE table_name = 'job_additional_costs' AND column_name = ANY($1::text[])`,
@@ -191,15 +208,10 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Generate quotation PDF
-router.get('/quotation/:jobId', async (req, res) => {
+router.get('/quotation/:jobId', authenticateToken, async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // Set CORS headers explicitly
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
     // Set PDF headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
@@ -329,9 +341,11 @@ router.get('/quotation/:jobId', async (req, res) => {
     if (machines.rows.length > 0) {
       doc.text('Machines:', { underline: true });
       machines.rows.forEach(machine => {
-        const subtotal = machine.impressions * machine.cost_per_impression;
+        const runningCost = toNumber(machine.impressions) * toNumber(machine.cost_per_impression);
+        const setupCost = toNumber(machine.setup_cost);
+        const subtotal = runningCost + setupCost;
         totalCost += subtotal;
-        doc.text(`  ${machine.machine_name}: ${machine.impressions} impressions @ UGX ${machine.cost_per_impression.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+        doc.text(`  ${machine.machine_name}: ${machine.impressions} impressions @ UGX ${formatUGX(machine.cost_per_impression)} + setup UGX ${formatUGX(setupCost)} = UGX ${formatUGX(subtotal)}`);
       });
       doc.moveDown(0.5);
     }
@@ -340,9 +354,11 @@ router.get('/quotation/:jobId', async (req, res) => {
     if (bindings.rows.length > 0) {
       doc.text('Bindings:', { underline: true });
       bindings.rows.forEach(binding => {
-        const subtotal = binding.copies * binding.cost_per_copy;
+        const subtotal = binding.cost !== null && binding.cost !== undefined
+          ? toNumber(binding.cost)
+          : toNumber(binding.copies) * toNumber(binding.cost_per_copy);
         totalCost += subtotal;
-        doc.text(`  ${binding.binding_name}: ${binding.copies} copies @ UGX ${binding.cost_per_copy.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+        doc.text(`  ${binding.binding_name}: UGX ${formatUGX(subtotal)}`);
       });
       doc.moveDown(0.5);
     }
@@ -351,9 +367,9 @@ router.get('/quotation/:jobId', async (req, res) => {
     if (processes.rows.length > 0) {
       doc.text('Special Processes:', { underline: true });
       processes.rows.forEach(process => {
-        const subtotal = process.quantity * process.cost_per_unit;
+        const subtotal = toNumber(process.quantity) * toNumber(process.cost_per_unit);
         totalCost += subtotal;
-        doc.text(`  ${process.process_name}: ${process.quantity} @ UGX ${process.cost_per_unit.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
+        doc.text(`  ${process.process_name}: ${process.quantity} @ UGX ${formatUGX(process.cost_per_unit)} = UGX ${formatUGX(subtotal)}`);
       });
       doc.moveDown(0.5);
     }
@@ -364,56 +380,74 @@ router.get('/quotation/:jobId', async (req, res) => {
       doc.text('Additional Costs:', { underline: true });
 
       if (costs.design_pages > 0) {
-        const designTotal = costs.design_pages * costs.design_rate;
+        const designTotal = toNumber(costs.design_pages) * toNumber(costs.design_rate);
         totalCost += designTotal;
-        doc.text(`  Design: ${costs.design_pages} pages @ UGX ${costs.design_rate.toLocaleString()} = UGX ${designTotal.toLocaleString()}`);
+        doc.text(`  Design: ${costs.design_pages} pages @ UGX ${formatUGX(costs.design_rate)} = UGX ${formatUGX(designTotal)}`);
       }
 
       if (costs.typesetting_pages > 0) {
-        const typesettingTotal = costs.typesetting_pages * costs.typesetting_rate;
+        const typesettingTotal = toNumber(costs.typesetting_pages) * toNumber(costs.typesetting_rate);
         totalCost += typesettingTotal;
-        doc.text(`  Typesetting: ${costs.typesetting_pages} pages @ UGX ${costs.typesetting_rate.toLocaleString()} = UGX ${typesettingTotal.toLocaleString()}`);
+        doc.text(`  Typesetting: ${costs.typesetting_pages} pages @ UGX ${formatUGX(costs.typesetting_rate)} = UGX ${formatUGX(typesettingTotal)}`);
+      }
+
+      if (costs.ctp_cost > 0) {
+        totalCost += toNumber(costs.ctp_cost);
+        doc.text(`  CTP / Computer To Plate: UGX ${formatUGX(costs.ctp_cost)}`);
       }
 
       if (costs.wastage_cost > 0) {
-        totalCost += costs.wastage_cost;
-        doc.text(`  Wastage: UGX ${costs.wastage_cost.toLocaleString()}`);
+        totalCost += toNumber(costs.wastage_cost);
+        doc.text(`  Wastage: UGX ${formatUGX(costs.wastage_cost)}`);
       }
 
       if (costs.subcontract_cost > 0) {
-        totalCost += costs.subcontract_cost;
-        doc.text(`  Subcontract (${costs.subcontract_description}): UGX ${costs.subcontract_cost.toLocaleString()}`);
+        totalCost += toNumber(costs.subcontract_cost);
+        doc.text(`  Subcontract (${costs.subcontract_description}): UGX ${formatUGX(costs.subcontract_cost)}`);
       }
 
       if (costs.storage_cost > 0) {
-        totalCost += costs.storage_cost;
-        doc.text(`  Storage: UGX ${costs.storage_cost.toLocaleString()}`);
+        totalCost += toNumber(costs.storage_cost);
+        doc.text(`  Storage: UGX ${formatUGX(costs.storage_cost)}`);
       }
 
       if (costs.transport_cost > 0) {
-        totalCost += costs.transport_cost;
-        doc.text(`  Transport: UGX ${costs.transport_cost.toLocaleString()}`);
+        totalCost += toNumber(costs.transport_cost);
+        doc.text(`  Transport: UGX ${formatUGX(costs.transport_cost)}`);
       }
 
       if (costs.overhead_cost > 0) {
-        totalCost += costs.overhead_cost;
-        doc.text(`  Overhead: UGX ${costs.overhead_cost.toLocaleString()}`);
+        totalCost += toNumber(costs.overhead_cost);
+        doc.text(`  Overhead: UGX ${formatUGX(costs.overhead_cost)}`);
+      }
+
+      if (costs.special_processes_total > 0) {
+        totalCost += toNumber(costs.special_processes_total);
+        doc.text(`  Special Processes: UGX ${formatUGX(costs.special_processes_total)}`);
       }
 
       doc.moveDown(0.5);
     }
 
     // Total before margin
-    doc.fontSize(14).text(`Total Cost: UGX ${totalCost.toLocaleString()}`, { underline: true });
+    doc.fontSize(14).text(`Total Cost of Production: UGX ${formatUGX(totalCost)}`, { underline: true });
     doc.moveDown(0.5);
 
-    // Apply margin
-    const marginAmount = totalCost * (job.margin_percentage / 100);
-    const finalTotal = totalCost + marginAmount;
+    const additionalCostRow = additionalCosts.rows[0] || {};
+    const commissionAmount = toNumber(additionalCostRow.commission_cost);
+    const marginAmount = totalCost * (toNumber(job.margin_percentage) / 100);
+    const sellingPrice = totalCost + commissionAmount + marginAmount;
+    const vatAmount = sellingPrice * 0.18;
+    const finalTotal = sellingPrice + vatAmount;
 
-    doc.text(`Margin (${job.margin_percentage}%): UGX ${marginAmount.toLocaleString()}`);
+    if (commissionAmount > 0) {
+      doc.text(`Commission: UGX ${formatUGX(commissionAmount)}`);
+    }
+    doc.text(`Margin (${job.margin_percentage}%): UGX ${formatUGX(marginAmount)}`);
+    doc.text(`Selling Price: UGX ${formatUGX(sellingPrice)}`);
+    doc.text(`VAT (18%): UGX ${formatUGX(vatAmount)}`);
     doc.moveDown();
-    doc.fontSize(16).text(`FINAL QUOTE: UGX ${finalTotal.toLocaleString()}`, { bold: true });
+    doc.fontSize(16).text(`FINAL QUOTE: UGX ${formatUGX(finalTotal)}`);
 
     // Footer
     doc.moveDown(2);

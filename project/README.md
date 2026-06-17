@@ -52,6 +52,7 @@ DB_PORT=5432              # Database port
 DB_NAME=costing_db        # Database name
 DB_USER=your_username     # Database user
 DB_PASS=your_password     # Database password
+JWT_SECRET=change_me      # Long random token signing secret
 PORT=3000                 # Server port
 HOST=127.0.0.1            # Server host (use 0.0.0.0 for external access)
 ```
