@@ -3,6 +3,8 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 const { authenticateToken } = require('./auth');
 
 function toNumber(value) {
@@ -12,6 +14,246 @@ function toNumber(value) {
 
 function formatUGX(value) {
   return toNumber(value).toLocaleString();
+}
+
+function getLogoPath() {
+  const logoPath = path.join(__dirname, '..', '..', 'UPPC-LOGO.png');
+  return fs.existsSync(logoPath) ? logoPath : null;
+}
+
+async function getQuotationData(jobId) {
+  const jobQuery = `
+    SELECT j.*, c.name as client_name, c.type as client_type, c.address as client_address,
+           c.contact as client_contact, c.email as client_email, mt.margin_percentage
+    FROM jobs j
+    JOIN clients c ON j.client_id = c.id
+    JOIN margin_tiers mt ON c.margin_tier_id = mt.id
+    WHERE j.id = $1
+  `;
+  const jobResult = await pool.query(jobQuery, [jobId]);
+
+  if (jobResult.rows.length === 0) {
+    return null;
+  }
+
+  const [materials, machines, bindings, processes, additionalCosts] = await Promise.all([
+    pool.query(`
+      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
+      FROM job_materials jm
+      JOIN materials m ON jm.material_id = m.id
+      WHERE jm.job_id = $1
+    `, [jobId]),
+    pool.query(`
+      SELECT jm.*, m.name as machine_name
+      FROM job_machines jm
+      JOIN machines m ON jm.machine_id = m.id
+      WHERE jm.job_id = $1
+    `, [jobId]),
+    pool.query(`
+      SELECT jb.*, b.method as binding_name
+      FROM job_bindings jb
+      JOIN bindings b ON jb.binding_id = b.id
+      WHERE jb.job_id = $1
+    `, [jobId]),
+    pool.query(`
+      SELECT jsp.*, sp.name as process_name
+      FROM job_special_processes jsp
+      JOIN special_processes sp ON jsp.special_process_id = sp.id
+      WHERE jsp.job_id = $1
+    `, [jobId]),
+    pool.query('SELECT * FROM job_additional_costs WHERE job_id = $1', [jobId])
+  ]);
+
+  return {
+    job: jobResult.rows[0],
+    materials: materials.rows,
+    machines: machines.rows,
+    bindings: bindings.rows,
+    processes: processes.rows,
+    additionalCosts: additionalCosts.rows
+  };
+}
+
+function calculateQuotationTotals(data) {
+  const { job, materials, machines, bindings, processes, additionalCosts } = data;
+  let productionTotal = 0;
+
+  materials.forEach(material => {
+    productionTotal += toNumber(material.quantity) * toNumber(material.unit_cost);
+  });
+
+  machines.forEach(machine => {
+    productionTotal += (toNumber(machine.impressions) * toNumber(machine.cost_per_impression)) + toNumber(machine.setup_cost);
+  });
+
+  bindings.forEach(binding => {
+    productionTotal += binding.cost !== null && binding.cost !== undefined
+      ? toNumber(binding.cost)
+      : toNumber(binding.copies) * toNumber(binding.cost_per_copy);
+  });
+
+  processes.forEach(process => {
+    productionTotal += toNumber(process.quantity) * toNumber(process.cost_per_unit);
+  });
+
+  if (additionalCosts.length > 0) {
+    const costs = additionalCosts[0];
+    productionTotal += toNumber(costs.design_pages) * toNumber(costs.design_rate);
+    productionTotal += toNumber(costs.typesetting_pages) * toNumber(costs.typesetting_rate);
+    productionTotal += toNumber(costs.ctp_cost);
+    productionTotal += toNumber(costs.wastage_cost);
+    productionTotal += toNumber(costs.subcontract_cost);
+    productionTotal += toNumber(costs.storage_cost);
+    productionTotal += toNumber(costs.transport_cost);
+    productionTotal += toNumber(costs.overhead_cost);
+    productionTotal += toNumber(costs.special_processes_total);
+  }
+
+  const additionalCostRow = additionalCosts[0] || {};
+  const commissionAmount = toNumber(additionalCostRow.commission_cost);
+  const marginAmount = productionTotal * (toNumber(job.margin_percentage) / 100);
+  const sellingPrice = productionTotal + commissionAmount + marginAmount;
+  const vatAmount = sellingPrice * 0.18;
+
+  return {
+    productionTotal,
+    commissionAmount,
+    marginAmount,
+    sellingPrice,
+    vatAmount,
+    finalTotal: sellingPrice + vatAmount,
+    rate: toNumber(job.quantity) > 0 ? sellingPrice / toNumber(job.quantity) : sellingPrice
+  };
+}
+
+function drawHorizontalLine(doc, x1, x2, y, width = 1) {
+  doc.lineWidth(width).moveTo(x1, y).lineTo(x2, y).stroke();
+}
+
+function drawUnderlineField(doc, label, value, x, y, labelWidth, fieldWidth) {
+  doc.font('Helvetica').fontSize(10).fillColor('black').text(label, x, y);
+  doc.text(value || '', x + labelWidth, y, { width: fieldWidth, height: 14 });
+  drawHorizontalLine(doc, x + labelWidth, x + labelWidth + fieldWidth, y + 14, 0.8);
+}
+
+function drawQuotationPdf(doc, jobId, data) {
+  const { job } = data;
+  const totals = calculateQuotationTotals(data);
+  const logoPath = getLogoPath();
+  const quoteNo = String(jobId).padStart(6, '0');
+  const quoteDate = new Date().toLocaleDateString('en-GB');
+  const pageLeft = 34;
+  const pageRight = 561;
+  const pageWidth = pageRight - pageLeft;
+  const description = [job.name, job.description].filter(Boolean).join(' - ');
+
+  doc.fillColor('black').lineJoin('miter');
+
+  if (logoPath) {
+    doc.image(logoPath, 246, 24, { fit: [105, 54], align: 'center' });
+  }
+
+  doc.font('Helvetica').fontSize(22).text('UGANDA', pageLeft, 82, { width: pageWidth, align: 'center' });
+  doc.fontSize(21).text('PRINTING AND PUBLISHING', pageLeft, 109, { width: pageWidth, align: 'center' });
+  doc.fontSize(21).text('CORPORATION', pageLeft, 135, { width: pageWidth, align: 'center' });
+  doc.fontSize(8.8).text(
+    'P.O. Box 33, Entebbe, Uganda, Telephones: 0414-320639, Toll-Free: 0800111467, WhatsApp: +256783914332',
+    pageLeft,
+    164,
+    { width: pageWidth, align: 'center' }
+  );
+  drawHorizontalLine(doc, pageLeft, pageRight, 181, 1.4);
+
+  doc.font('Helvetica-Bold').fontSize(18).text('QUOTATION', pageLeft, 190, { width: pageWidth, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(17).fillColor('#b41414').text(quoteNo, 456, 190, { width: 80, align: 'center' });
+  doc.fillColor('black');
+  drawHorizontalLine(doc, pageLeft, pageRight, 215, 1.4);
+
+  drawUnderlineField(doc, 'To:', job.client_name, pageLeft, 230, 24, 300);
+  drawUnderlineField(doc, 'Enquiry Ref:', '', 350, 230, 70, 130);
+  drawUnderlineField(doc, '', job.client_address || '', pageLeft + 24, 254, 0, 300);
+  drawUnderlineField(doc, '', job.client_contact || '', 350, 254, 0, 200);
+  drawUnderlineField(doc, '', job.client_email || '', pageLeft + 24, 278, 0, 300);
+  drawHorizontalLine(doc, pageLeft, pageRight, 304, 1.4);
+
+  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, 315);
+  drawUnderlineField(doc, 'Date:', quoteDate, 392, 315, 34, 125);
+  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, 337);
+
+  const tableTop = 358;
+  const tableLeft = pageLeft;
+  const colWidths = [105, 215, 80, 125];
+  const rowHeight = 23;
+  const tableRows = 13;
+  const tableWidth = colWidths.reduce((sum, width) => sum + width, 0);
+  const tableBottom = tableTop + rowHeight * (tableRows + 1);
+  const colX = [
+    tableLeft,
+    tableLeft + colWidths[0],
+    tableLeft + colWidths[0] + colWidths[1],
+    tableLeft + colWidths[0] + colWidths[1] + colWidths[2],
+    tableLeft + tableWidth
+  ];
+
+  doc.lineWidth(1.1).rect(tableLeft, tableTop, tableWidth, rowHeight * (tableRows + 1)).stroke();
+  for (let i = 1; i < colX.length - 1; i++) {
+    doc.moveTo(colX[i], tableTop).lineTo(colX[i], tableBottom).stroke();
+  }
+  for (let i = 1; i <= tableRows + 1; i++) {
+    doc.moveTo(tableLeft, tableTop + i * rowHeight).lineTo(tableLeft + tableWidth, tableTop + i * rowHeight).stroke();
+  }
+
+  doc.font('Helvetica-Bold').fontSize(11);
+  doc.text('Quantity', colX[0], tableTop + 6, { width: colWidths[0], align: 'center' });
+  doc.text('Description', colX[1], tableTop + 6, { width: colWidths[1], align: 'center' });
+  doc.text('Rate', colX[2], tableTop + 6, { width: colWidths[2], align: 'center' });
+  doc.text('Price', colX[3], tableTop + 6, { width: colWidths[3], align: 'center' });
+
+  doc.font('Helvetica').fontSize(10);
+  const itemY = tableTop + rowHeight + 6;
+  doc.text(formatUGX(job.quantity), colX[0] + 4, itemY, { width: colWidths[0] - 8, align: 'center' });
+  doc.text(description || 'Printing services', colX[1] + 6, itemY, { width: colWidths[1] - 12, height: rowHeight * 2 - 4 });
+  doc.text(formatUGX(totals.rate), colX[2] + 4, itemY, { width: colWidths[2] - 8, align: 'right' });
+  doc.text(formatUGX(totals.sellingPrice), colX[3] + 4, itemY, { width: colWidths[3] - 8, align: 'right' });
+
+  const totalsTop = tableBottom + 10;
+  doc.font('Helvetica-Bold').fontSize(8.5).text(
+    'THIS QUOTATION IS VALID FOR THIRTY DAYS FROM THE DATE HEREON\nAND IS SUBJECT TO THE CONDITIONS PRINTED OVERLEAF\nE&O.E.',
+    pageLeft,
+    totalsTop + 8,
+    { width: 310, lineGap: 2 }
+  );
+
+  const totalLabelX = 360;
+  const totalBoxX = 438;
+  const totalBoxW = 123;
+  const totalBoxH = 24;
+  const totalRows = [
+    ['TOTAL GOODS', totals.sellingPrice],
+    ['VAT', totals.vatAmount],
+    ['TOTAL', totals.finalTotal]
+  ];
+  doc.font('Helvetica').fontSize(12);
+  totalRows.forEach(([label, value], index) => {
+    const y = totalsTop + index * 35;
+    doc.text(label, totalLabelX, y + 6, { width: 70, align: 'right' });
+    doc.rect(totalBoxX, y, totalBoxW, totalBoxH).stroke();
+    doc.font('Helvetica-Bold').fontSize(10).text(formatUGX(value), totalBoxX + 6, y + 7, { width: totalBoxW - 12, align: 'right' });
+    doc.font('Helvetica').fontSize(12);
+  });
+
+  const footerTop = totalsTop + 118;
+  doc.font('Helvetica').fontSize(11);
+  doc.text('Delivery', pageLeft, footerTop);
+  drawHorizontalLine(doc, pageLeft + 48, pageLeft + 358, footerTop + 14, 0.8);
+  doc.text('from receipt of order at factory', pageLeft + 364, footerTop);
+  doc.text('Terms', pageLeft, footerTop + 28);
+  drawHorizontalLine(doc, pageLeft + 48, pageRight, footerTop + 42, 0.8);
+  doc.text('Special conditions', pageLeft, footerTop + 56);
+  drawHorizontalLine(doc, pageLeft + 111, pageRight, footerTop + 70, 0.8);
+  drawHorizontalLine(doc, pageLeft, pageRight, footerTop + 94, 0.8);
+  doc.text('Yours faithfully,', pageLeft, footerTop + 118);
+  doc.text('for UGANDA PRINTING AND PUBLISHING CORPORATION', pageLeft, footerTop + 143);
 }
 
 // Submit comprehensive costing
@@ -212,249 +454,21 @@ router.get('/quotation/:jobId', authenticateToken, async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // Set PDF headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
+    const data = await getQuotationData(jobId);
 
-    // Get job details with client information
-    const jobQuery = `
-      SELECT j.*, c.name as client_name, c.type as client_type, c.address as client_address,
-             c.contact as client_contact, c.email as client_email, mt.margin_percentage
-      FROM jobs j
-      JOIN clients c ON j.client_id = c.id
-      JOIN margin_tiers mt ON c.margin_tier_id = mt.id
-      WHERE j.id = $1
-    `;
-    const jobResult = await pool.query(jobQuery, [jobId]);
-
-    if (jobResult.rows.length === 0) {
+    if (!data) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    const job = jobResult.rows[0];
-
-    // Get job materials
-    const materialsQuery = `
-      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
-      FROM job_materials jm
-      JOIN materials m ON jm.material_id = m.id
-      WHERE jm.job_id = $1
-    `;
-    const materials = await pool.query(materialsQuery, [jobId]);
-
-    // Get job machines
-    const machinesQuery = `
-      SELECT jm.*, m.name as machine_name
-      FROM job_machines jm
-      JOIN machines m ON jm.machine_id = m.id
-      WHERE jm.job_id = $1
-    `;
-    const machines = await pool.query(machinesQuery, [jobId]);
-
-    // Get job bindings
-    const bindingsQuery = `
-      SELECT jb.*, b.method as binding_name
-      FROM job_bindings jb
-      JOIN bindings b ON jb.binding_id = b.id
-      WHERE jb.job_id = $1
-    `;
-    const bindings = await pool.query(bindingsQuery, [jobId]);
-
-    // Get job special processes
-    const processesQuery = `
-      SELECT jsp.*, sp.name as process_name
-      FROM job_special_processes jsp
-      JOIN special_processes sp ON jsp.special_process_id = sp.id
-      WHERE jsp.job_id = $1
-    `;
-    const processes = await pool.query(processesQuery, [jobId]);
-
-    // Get additional costs
-    const additionalCostsQuery = 'SELECT * FROM job_additional_costs WHERE job_id = $1';
-    const additionalCosts = await pool.query(additionalCostsQuery, [jobId]);
-
-    // Create PDF document
     const doc = new PDFDocument({
       size: 'A4',
-      margin: 50
+      margin: 0
     });
 
-    // Set response headers
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
-
-    // Pipe PDF to response
     doc.pipe(res);
-
-    // Header
-    doc.fontSize(20).text('UGANDA PRINTING AND PUBLISHING CORPORATION', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(16).text('QUOTATION', { align: 'center' });
-    doc.moveDown(2);
-
-    // Quotation details
-    doc.fontSize(12);
-    doc.text(`Quotation No: Q${jobId.toString().padStart(4, '0')}`);
-    doc.text(`Date: ${new Date().toLocaleDateString()}`);
-    doc.moveDown();
-
-    // Client information
-    doc.fontSize(14).text('CLIENT INFORMATION', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-    doc.text(`Name: ${job.client_name}`);
-    doc.text(`Type: ${job.client_type}`);
-    if (job.client_address) doc.text(`Address: ${job.client_address}`);
-    if (job.client_contact) doc.text(`Contact: ${job.client_contact}`);
-    if (job.client_email) doc.text(`Email: ${job.client_email}`);
-    doc.moveDown();
-
-    // Job details
-    doc.fontSize(14).text('JOB DETAILS', { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(12);
-    doc.text(`Job Name: ${job.name}`);
-    if (job.description) doc.text(`Description: ${job.description}`);
-    doc.text(`Quantity: ${job.quantity}`);
-    if (job.page_size) doc.text(`Page Size: ${job.page_size}`);
-    if (job.pages_per_copy) doc.text(`Pages per Copy: ${job.pages_per_copy}`);
-    doc.moveDown();
-
-    // Cost breakdown
-    doc.fontSize(14).text('COST BREAKDOWN', { underline: true });
-    doc.moveDown(0.5);
-
-    let totalCost = 0;
-
-    // Materials
-    if (materials.rows.length > 0) {
-      doc.fontSize(12).text('Materials:', { underline: true });
-      materials.rows.forEach(material => {
-        const subtotal = material.quantity * material.unit_cost;
-        totalCost += subtotal;
-        doc.text(`  ${material.material_name}: ${material.quantity} ${material.unit} @ UGX ${material.unit_cost.toLocaleString()} = UGX ${subtotal.toLocaleString()}`);
-      });
-      doc.moveDown(0.5);
-    }
-
-    // Machines
-    if (machines.rows.length > 0) {
-      doc.text('Machines:', { underline: true });
-      machines.rows.forEach(machine => {
-        const runningCost = toNumber(machine.impressions) * toNumber(machine.cost_per_impression);
-        const setupCost = toNumber(machine.setup_cost);
-        const subtotal = runningCost + setupCost;
-        totalCost += subtotal;
-        doc.text(`  ${machine.machine_name}: ${machine.impressions} impressions @ UGX ${formatUGX(machine.cost_per_impression)} + setup UGX ${formatUGX(setupCost)} = UGX ${formatUGX(subtotal)}`);
-      });
-      doc.moveDown(0.5);
-    }
-
-    // Bindings
-    if (bindings.rows.length > 0) {
-      doc.text('Bindings:', { underline: true });
-      bindings.rows.forEach(binding => {
-        const subtotal = binding.cost !== null && binding.cost !== undefined
-          ? toNumber(binding.cost)
-          : toNumber(binding.copies) * toNumber(binding.cost_per_copy);
-        totalCost += subtotal;
-        doc.text(`  ${binding.binding_name}: UGX ${formatUGX(subtotal)}`);
-      });
-      doc.moveDown(0.5);
-    }
-
-    // Special Processes
-    if (processes.rows.length > 0) {
-      doc.text('Special Processes:', { underline: true });
-      processes.rows.forEach(process => {
-        const subtotal = toNumber(process.quantity) * toNumber(process.cost_per_unit);
-        totalCost += subtotal;
-        doc.text(`  ${process.process_name}: ${process.quantity} @ UGX ${formatUGX(process.cost_per_unit)} = UGX ${formatUGX(subtotal)}`);
-      });
-      doc.moveDown(0.5);
-    }
-
-    // Additional Costs
-    if (additionalCosts.rows.length > 0) {
-      const costs = additionalCosts.rows[0];
-      doc.text('Additional Costs:', { underline: true });
-
-      if (costs.design_pages > 0) {
-        const designTotal = toNumber(costs.design_pages) * toNumber(costs.design_rate);
-        totalCost += designTotal;
-        doc.text(`  Design: ${costs.design_pages} pages @ UGX ${formatUGX(costs.design_rate)} = UGX ${formatUGX(designTotal)}`);
-      }
-
-      if (costs.typesetting_pages > 0) {
-        const typesettingTotal = toNumber(costs.typesetting_pages) * toNumber(costs.typesetting_rate);
-        totalCost += typesettingTotal;
-        doc.text(`  Typesetting: ${costs.typesetting_pages} pages @ UGX ${formatUGX(costs.typesetting_rate)} = UGX ${formatUGX(typesettingTotal)}`);
-      }
-
-      if (costs.ctp_cost > 0) {
-        totalCost += toNumber(costs.ctp_cost);
-        doc.text(`  CTP / Computer To Plate: UGX ${formatUGX(costs.ctp_cost)}`);
-      }
-
-      if (costs.wastage_cost > 0) {
-        totalCost += toNumber(costs.wastage_cost);
-        doc.text(`  Wastage: UGX ${formatUGX(costs.wastage_cost)}`);
-      }
-
-      if (costs.subcontract_cost > 0) {
-        totalCost += toNumber(costs.subcontract_cost);
-        doc.text(`  Subcontract (${costs.subcontract_description}): UGX ${formatUGX(costs.subcontract_cost)}`);
-      }
-
-      if (costs.storage_cost > 0) {
-        totalCost += toNumber(costs.storage_cost);
-        doc.text(`  Storage: UGX ${formatUGX(costs.storage_cost)}`);
-      }
-
-      if (costs.transport_cost > 0) {
-        totalCost += toNumber(costs.transport_cost);
-        doc.text(`  Transport: UGX ${formatUGX(costs.transport_cost)}`);
-      }
-
-      if (costs.overhead_cost > 0) {
-        totalCost += toNumber(costs.overhead_cost);
-        doc.text(`  Overhead: UGX ${formatUGX(costs.overhead_cost)}`);
-      }
-
-      if (costs.special_processes_total > 0) {
-        totalCost += toNumber(costs.special_processes_total);
-        doc.text(`  Special Processes: UGX ${formatUGX(costs.special_processes_total)}`);
-      }
-
-      doc.moveDown(0.5);
-    }
-
-    // Total before margin
-    doc.fontSize(14).text(`Total Cost of Production: UGX ${formatUGX(totalCost)}`, { underline: true });
-    doc.moveDown(0.5);
-
-    const additionalCostRow = additionalCosts.rows[0] || {};
-    const commissionAmount = toNumber(additionalCostRow.commission_cost);
-    const marginAmount = totalCost * (toNumber(job.margin_percentage) / 100);
-    const sellingPrice = totalCost + commissionAmount + marginAmount;
-    const vatAmount = sellingPrice * 0.18;
-    const finalTotal = sellingPrice + vatAmount;
-
-    if (commissionAmount > 0) {
-      doc.text(`Commission: UGX ${formatUGX(commissionAmount)}`);
-    }
-    doc.text(`Margin (${job.margin_percentage}%): UGX ${formatUGX(marginAmount)}`);
-    doc.text(`Selling Price: UGX ${formatUGX(sellingPrice)}`);
-    doc.text(`VAT (18%): UGX ${formatUGX(vatAmount)}`);
-    doc.moveDown();
-    doc.fontSize(16).text(`FINAL QUOTE: UGX ${formatUGX(finalTotal)}`);
-
-    // Footer
-    doc.moveDown(2);
-    doc.fontSize(10).text('This quotation is valid for 30 days from the date of issue.', { align: 'center' });
-    doc.text('Terms and conditions apply.', { align: 'center' });
-
-    // Finalize PDF
+    drawQuotationPdf(doc, jobId, data);
     doc.end();
 
   } catch (err) {
