@@ -1152,8 +1152,9 @@ addMaterialBtn.addEventListener('click', () => {
 });
 
 materialsList.addEventListener('click', (e) => {
-  if (e.target.classList.contains('remove-material')) {
-    const item = e.target.closest('.material-item');
+  const removeButton = e.target.closest('.remove-material');
+  if (removeButton) {
+    const item = removeButton.closest('.material-item');
     const allItems = materialsList.querySelectorAll('.material-item');
     if (allItems.length > 1) {
       item.remove();
@@ -1187,8 +1188,9 @@ if (addPaperBtn) {
 
 if (paperMaterialsList) {
   paperMaterialsList.addEventListener('click', (e) => {
-    if (e.target.classList.contains('remove-paper-material')) {
-      const item = e.target.closest('.paper-material-item');
+    const removeButton = e.target.closest('.remove-paper-material');
+    if (removeButton) {
+      const item = removeButton.closest('.paper-material-item');
       const allItems = paperMaterialsList.querySelectorAll('.paper-material-item');
       if (allItems.length > 1) {
         item.remove();
@@ -1223,8 +1225,9 @@ addMachineBtn.addEventListener('click', () => {
 });
 
 machinesList.addEventListener('click', (e) => {
-  if (e.target.classList.contains('remove-machine')) {
-    const item = e.target.closest('.machine-item');
+  const removeButton = e.target.closest('.remove-machine');
+  if (removeButton) {
+    const item = removeButton.closest('.machine-item');
     const allItems = machinesList.querySelectorAll('.machine-item');
     if (allItems.length > 1) {
       item.remove();
@@ -1630,10 +1633,10 @@ function displayClients(clients) {
 
 // Comprehensive Costing Form Functions
 function isPaperMaterial(material) {
-  const name = (material.name || '').toString().toLowerCase();
   const category = (material.category || '').toString().toLowerCase();
-  if (name.includes('plate')) return false;
-  return category.includes('paper') || category.includes('stock') || /\b(a[1-6]|b[0-9]+)\b/.test(name) || name.includes('paper');
+  const excludedCategories = ['plate', 'plates', 'envelope', 'envelopes'];
+  if (excludedCategories.some(excluded => category.includes(excluded))) return false;
+  return ['paper', 'stock', 'card', 'cardstock', 'board'].some(type => category.includes(type));
 }
 
 function populateMaterials() {
@@ -1731,7 +1734,7 @@ function addMaterialItem() {
     <td><input type="number" name="material-quantity[]" min="0.01" step="0.01" required></td>
     <td><input type="number" name="material-cost[]" min="0" step="0.01" readonly></td>
     <td><input type="number" name="material-subtotal[]" readonly></td>
-    <td><button type="button" class="remove-material">🗑️</button></td>
+    <td><button type="button" class="remove-material" title="Remove material" aria-label="Remove material"><i class="bi bi-trash3"></i></button></td>
   `;
   materialsList.appendChild(materialItem);
   populateMaterials();
@@ -1749,7 +1752,7 @@ function addPaperItem() {
     <td><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" required></td>
     <td><input type="number" name="paper-material-cost[]" min="0" step="0.01" readonly></td>
     <td><input type="number" name="paper-material-subtotal[]" readonly></td>
-    <td><button type="button" class="remove-paper-material">🗑️</button></td>
+    <td><button type="button" class="remove-paper-material" title="Remove paper" aria-label="Remove paper"><i class="bi bi-trash3"></i></button></td>
   `;
   paperMaterialsList.appendChild(paperItem);
   populatePaperMaterials();
@@ -1782,7 +1785,7 @@ function addMachineItem() {
     <td><input type="number" name="machine-setup-percent[]" min="0" step="0.1" placeholder="Setup %" value="10"></td>
     <td><input type="number" name="machine-running[]" readonly></td>
     <td><input type="number" name="machine-subtotal[]" readonly></td>
-    <td><button type="button" class="remove-machine">🗑️</button></td>
+    <td><button type="button" class="remove-machine" title="Remove machine" aria-label="Remove machine"><i class="bi bi-trash3"></i></button></td>
   `;
   machinesList.appendChild(machineItem);
   populateMachines();
@@ -1808,7 +1811,7 @@ function addProcessItem() {
       <input type="number" name="process-subtotal[]" readonly>
     </td>
     <td>
-      <button type="button" class="remove-process">Remove</button>
+      <button type="button" class="remove-process" title="Remove process" aria-label="Remove process"><i class="bi bi-trash3"></i></button>
     </td>
   `;
   // processesList.appendChild(processRow);

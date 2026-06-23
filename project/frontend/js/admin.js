@@ -56,6 +56,23 @@ const materialsTableBody = document.querySelector('#admin-materials-table tbody'
 const machinesTableBody = document.querySelector('#admin-machines-table tbody');
 const createMaterialForm = document.getElementById('create-material-form');
 const createMachineForm = document.getElementById('create-machine-form');
+const materialsSearchInput = document.getElementById('materials-search');
+const materialsCategoryFilter = document.getElementById('materials-category-filter');
+const materialsSortSelect = document.getElementById('materials-sort');
+const machinesSearchInput = document.getElementById('machines-search');
+const machinesSetupFilter = document.getElementById('machines-setup-filter');
+const machinesSortSelect = document.getElementById('machines-sort');
+
+const adminState = {
+  materials: [],
+  machines: [],
+  materialSearch: '',
+  materialCategory: '',
+  materialSort: { key: 'name', direction: 'asc' },
+  machineSearch: '',
+  machineSetupFilter: '',
+  machineSort: { key: 'name', direction: 'asc' }
+};
 
 function showStatus(message, type = 'success') {
   statusDiv.textContent = message;
@@ -122,16 +139,120 @@ async function loadAdminData() {
       apiRequest('/machines')
     ]);
 
-    renderMaterials(materials);
-    renderMachines(machines);
+    adminState.materials = materials;
+    adminState.machines = machines;
+    populateMaterialCategoryFilter(materials);
+    renderMaterials();
+    renderMachines();
     showStatus('Admin data loaded successfully.');
   } catch (error) {
     console.error('Unable to load admin data:', error);
   }
 }
 
-function renderMaterials(materials) {
+function normalizeValue(value) {
+  return (value ?? '').toString().trim().toLowerCase();
+}
+
+function parseSortValue(value, fallbackKey = 'name') {
+  const [key = fallbackKey, direction = 'asc'] = (value || '').split(':');
+  return { key, direction };
+}
+
+function compareRecords(a, b, key, direction) {
+  const aValue = a[key];
+  const bValue = b[key];
+  const isNumeric = !Number.isNaN(parseFloat(aValue)) || !Number.isNaN(parseFloat(bValue));
+  let result;
+
+  if (isNumeric) {
+    result = (parseFloat(aValue) || 0) - (parseFloat(bValue) || 0);
+  } else {
+    result = normalizeValue(aValue).localeCompare(normalizeValue(bValue));
+  }
+
+  return direction === 'desc' ? result * -1 : result;
+}
+
+function populateMaterialCategoryFilter(materials) {
+  const currentValue = materialsCategoryFilter.value;
+  const categories = [...new Set(materials.map(material => material.category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+
+  materialsCategoryFilter.innerHTML = '<option value="">All categories</option>';
+  categories.forEach(category => {
+    const option = document.createElement('option');
+    option.value = category;
+    option.textContent = category;
+    materialsCategoryFilter.appendChild(option);
+  });
+  materialsCategoryFilter.value = categories.includes(currentValue) ? currentValue : '';
+  adminState.materialCategory = materialsCategoryFilter.value;
+}
+
+function getVisibleMaterials() {
+  const search = normalizeValue(adminState.materialSearch);
+  return adminState.materials
+    .filter(material => {
+      const matchesSearch = !search || [
+        material.name,
+        material.category,
+        material.unit_of_measure,
+        material.unit_cost
+      ].some(value => normalizeValue(value).includes(search));
+      const matchesCategory = !adminState.materialCategory || material.category === adminState.materialCategory;
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => compareRecords(a, b, adminState.materialSort.key, adminState.materialSort.direction));
+}
+
+function getVisibleMachines() {
+  const search = normalizeValue(adminState.machineSearch);
+  return adminState.machines
+    .filter(machine => {
+      const matchesSearch = !search || [
+        machine.name,
+        machine.cost_per_impression,
+        machine.setup_cost
+      ].some(value => normalizeValue(value).includes(search));
+      const setupCost = parseFloat(machine.setup_cost || 0);
+      const matchesSetupFilter = !adminState.machineSetupFilter
+        || (adminState.machineSetupFilter === 'with-setup' && setupCost > 0)
+        || (adminState.machineSetupFilter === 'no-setup' && setupCost <= 0);
+      return matchesSearch && matchesSetupFilter;
+    })
+    .sort((a, b) => compareRecords(a, b, adminState.machineSort.key, adminState.machineSort.direction));
+}
+
+function createIconButton(iconClass, label, className, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `icon-action ${className}`;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.innerHTML = `<i class="bi ${iconClass}"></i>`;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function renderEmptyRow(tbody, colspan, message) {
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = colspan;
+  cell.className = 'admin-empty-state';
+  cell.textContent = message;
+  row.appendChild(cell);
+  tbody.appendChild(row);
+}
+
+function renderMaterials() {
+  const materials = getVisibleMaterials();
   materialsTableBody.innerHTML = '';
+
+  if (materials.length === 0) {
+    renderEmptyRow(materialsTableBody, 5, 'No materials match the current search or filter.');
+    return;
+  }
 
   materials.forEach(material => {
     const row = document.createElement('tr');
@@ -141,22 +262,10 @@ function renderMaterials(materials) {
     const costInput = createEditableCell(material.unit_cost ?? 0, 'number');
     
     const actionContainer = document.createElement('div');
-    actionContainer.style.display = 'flex';
-    actionContainer.style.gap = '8px';
-    
-    const saveButton = document.createElement('button');
-    saveButton.type = 'button';
-    saveButton.textContent = 'Save';
-    saveButton.className = 'secondary-button';
-    saveButton.addEventListener('click', () => saveMaterial(material.id, row));
-    
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.textContent = 'Delete';
-    deleteButton.className = 'delete-button';
-    deleteButton.style.backgroundColor = '#dc3545';
-    deleteButton.style.color = 'white';
-    deleteButton.addEventListener('click', () => {
+    actionContainer.className = 'admin-actions';
+
+    const saveButton = createIconButton('bi-check2', 'Save material', 'save-action', () => saveMaterial(material.id, row));
+    const deleteButton = createIconButton('bi-trash3', 'Delete material', 'delete-action', () => {
       if (confirm(`Delete "${material.name}"?`)) {
         deleteMaterial(material.id);
       }
@@ -175,8 +284,14 @@ function renderMaterials(materials) {
   });
 }
 
-function renderMachines(machines) {
+function renderMachines() {
+  const machines = getVisibleMachines();
   machinesTableBody.innerHTML = '';
+
+  if (machines.length === 0) {
+    renderEmptyRow(machinesTableBody, 4, 'No machines match the current search or filter.');
+    return;
+  }
 
   machines.forEach(machine => {
     const row = document.createElement('tr');
@@ -185,22 +300,10 @@ function renderMachines(machines) {
     const setupInput = createEditableCell(machine.setup_cost ?? 0, 'number');
     
     const actionContainer = document.createElement('div');
-    actionContainer.style.display = 'flex';
-    actionContainer.style.gap = '8px';
-    
-    const saveButton = document.createElement('button');
-    saveButton.type = 'button';
-    saveButton.textContent = 'Save';
-    saveButton.className = 'secondary-button';
-    saveButton.addEventListener('click', () => saveMachine(machine.id, row));
-    
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.textContent = 'Delete';
-    deleteButton.className = 'delete-button';
-    deleteButton.style.backgroundColor = '#dc3545';
-    deleteButton.style.color = 'white';
-    deleteButton.addEventListener('click', () => {
+    actionContainer.className = 'admin-actions';
+
+    const saveButton = createIconButton('bi-check2', 'Save machine', 'save-action', () => saveMachine(machine.id, row));
+    const deleteButton = createIconButton('bi-trash3', 'Delete machine', 'delete-action', () => {
       if (confirm(`Delete "${machine.name}"?`)) {
         deleteMachine(machine.id);
       }
@@ -233,6 +336,7 @@ async function saveMaterial(id, row) {
       })
     });
     showStatus(`Material updated: ${updated.name}`);
+    await loadAdminData();
   } catch (error) {
     console.error('Save material error:', error);
   }
@@ -252,6 +356,7 @@ async function saveMachine(id, row) {
       })
     });
     showStatus(`Machine updated: ${updated.name}`);
+    await loadAdminData();
   } catch (error) {
     console.error('Save machine error:', error);
   }
@@ -321,6 +426,56 @@ createMachineForm.addEventListener('submit', async (event) => {
 });
 
 refreshAdminDataBtn.addEventListener('click', loadAdminData);
+
+materialsSearchInput.addEventListener('input', () => {
+  adminState.materialSearch = materialsSearchInput.value;
+  renderMaterials();
+});
+
+materialsCategoryFilter.addEventListener('change', () => {
+  adminState.materialCategory = materialsCategoryFilter.value;
+  renderMaterials();
+});
+
+materialsSortSelect.addEventListener('change', () => {
+  adminState.materialSort = parseSortValue(materialsSortSelect.value);
+  renderMaterials();
+});
+
+machinesSearchInput.addEventListener('input', () => {
+  adminState.machineSearch = machinesSearchInput.value;
+  renderMachines();
+});
+
+machinesSetupFilter.addEventListener('change', () => {
+  adminState.machineSetupFilter = machinesSetupFilter.value;
+  renderMachines();
+});
+
+machinesSortSelect.addEventListener('change', () => {
+  adminState.machineSort = parseSortValue(machinesSortSelect.value);
+  renderMachines();
+});
+
+document.addEventListener('click', (event) => {
+  const sortButton = event.target.closest('.sort-header');
+  if (!sortButton) return;
+
+  const table = sortButton.dataset.table;
+  const sortKey = sortButton.dataset.sort;
+  if (table === 'materials') {
+    const nextDirection = adminState.materialSort.key === sortKey && adminState.materialSort.direction === 'asc' ? 'desc' : 'asc';
+    adminState.materialSort = { key: sortKey, direction: nextDirection };
+    materialsSortSelect.value = `${sortKey}:${nextDirection}`;
+    renderMaterials();
+  }
+  if (table === 'machines') {
+    const nextDirection = adminState.machineSort.key === sortKey && adminState.machineSort.direction === 'asc' ? 'desc' : 'asc';
+    adminState.machineSort = { key: sortKey, direction: nextDirection };
+    machinesSortSelect.value = `${sortKey}:${nextDirection}`;
+    renderMachines();
+  }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
   loadAdminData();

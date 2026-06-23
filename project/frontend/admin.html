@@ -22,16 +22,35 @@
     <section class="page-card">
       <div class="section-header">
         <h2>Materials</h2>
-        <button id="refresh-admin-data" class="secondary-button">Refresh Data</button>
+        <button id="refresh-admin-data" class="secondary-button"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+      </div>
+      <div class="admin-toolbar" aria-label="Materials controls">
+        <div class="admin-search">
+          <i class="bi bi-search"></i>
+          <input type="search" id="materials-search" placeholder="Search materials...">
+        </div>
+        <select id="materials-category-filter" aria-label="Filter materials by category">
+          <option value="">All categories</option>
+        </select>
+        <select id="materials-sort" aria-label="Sort materials">
+          <option value="name:asc">Name A-Z</option>
+          <option value="name:desc">Name Z-A</option>
+          <option value="category:asc">Category A-Z</option>
+          <option value="category:desc">Category Z-A</option>
+          <option value="unit_of_measure:asc">Unit A-Z</option>
+          <option value="unit_of_measure:desc">Unit Z-A</option>
+          <option value="unit_cost:asc">Lowest cost</option>
+          <option value="unit_cost:desc">Highest cost</option>
+        </select>
       </div>
       <div class="admin-section">
         <table id="admin-materials-table" class="admin-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Category</th>
-              <th>Unit</th>
-              <th>Unit Cost</th>
+              <th><button type="button" class="sort-header" data-table="materials" data-sort="name">Name <i class="bi bi-arrow-down-up"></i></button></th>
+              <th><button type="button" class="sort-header" data-table="materials" data-sort="category">Category <i class="bi bi-arrow-down-up"></i></button></th>
+              <th><button type="button" class="sort-header" data-table="materials" data-sort="unit_of_measure">Unit <i class="bi bi-arrow-down-up"></i></button></th>
+              <th><button type="button" class="sort-header" data-table="materials" data-sort="unit_cost">Unit Cost <i class="bi bi-arrow-down-up"></i></button></th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -56,13 +75,32 @@
       <div class="section-header">
         <h2>Machines</h2>
       </div>
+      <div class="admin-toolbar" aria-label="Machines controls">
+        <div class="admin-search">
+          <i class="bi bi-search"></i>
+          <input type="search" id="machines-search" placeholder="Search machines...">
+        </div>
+        <select id="machines-setup-filter" aria-label="Filter machines by setup cost">
+          <option value="">All setup costs</option>
+          <option value="with-setup">With setup cost</option>
+          <option value="no-setup">No setup cost</option>
+        </select>
+        <select id="machines-sort" aria-label="Sort machines">
+          <option value="name:asc">Name A-Z</option>
+          <option value="name:desc">Name Z-A</option>
+          <option value="cost_per_impression:asc">Lowest impression cost</option>
+          <option value="cost_per_impression:desc">Highest impression cost</option>
+          <option value="setup_cost:asc">Lowest setup cost</option>
+          <option value="setup_cost:desc">Highest setup cost</option>
+        </select>
+      </div>
       <div class="admin-section">
         <table id="admin-machines-table" class="admin-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Cost / Impression</th>
-              <th>Setup Cost</th>
+              <th><button type="button" class="sort-header" data-table="machines" data-sort="name">Name <i class="bi bi-arrow-down-up"></i></button></th>
+              <th><button type="button" class="sort-header" data-table="machines" data-sort="cost_per_impression">Cost / Impression <i class="bi bi-arrow-down-up"></i></button></th>
+              <th><button type="button" class="sort-header" data-table="machines" data-sort="setup_cost">Setup Cost <i class="bi bi-arrow-down-up"></i></button></th>
               <th>Actions</th>
             </tr>
           </thead>
