@@ -419,22 +419,9 @@ button[type="submit"]:hover {
   background-color: #1e7e34;
 }
 
-.binding-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .binding-item,
 .special-process-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
   background: #fff;
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
 }
 
 .process-info {
@@ -452,6 +439,17 @@ button[type="submit"]:hover {
   color: #555;
 }
 
+.other-cost-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(180px, 240px);
+  gap: 14px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+  background: #fffdf4;
+}
+
 .form-section-mini {
   margin-top: 18px;
   padding: 14px;
@@ -467,28 +465,108 @@ button[type="submit"]:hover {
 
 .costing-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin-bottom: 14px;
   table-layout: fixed;
+  overflow: hidden;
+  border: 1px solid #dedede;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .costing-table th,
 .costing-table td {
-  border: 1px solid #ddd;
-  padding: 10px;
+  border: 0;
+  border-bottom: 1px solid #ececec;
+  padding: 10px 12px;
   text-align: left;
   word-wrap: break-word;
   white-space: normal;
+  vertical-align: middle;
 }
 
 .costing-table th {
-  background-color: #f5f5f5;
+  background-color: #f7f7f7;
+  color: #222;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.costing-table tbody tr:hover {
+  background-color: #fffbea;
+}
+
+.costing-table tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .costing-table input,
 .costing-table select {
   width: 100%;
   box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid #d6d6d6;
+  border-radius: 6px;
+  padding: 7px 9px;
+}
+
+.quantity-with-unit {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+
+.quantity-with-unit input {
+  border-radius: 6px 0 0 6px;
+}
+
+.unit-hint {
+  display: inline-flex;
+  align-items: center;
+  max-width: 90px;
+  padding: 0 9px;
+  border: 1px solid #d6d6d6;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+  background: #f7f7f7;
+  color: #555;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.amount-display {
+  display: inline-flex;
+  justify-content: flex-end;
+  min-width: 88px;
+  font-weight: 700;
+  color: #1d1d1b;
+}
+
+.table-add-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 14px;
+  background: #000;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.table-add-button:hover {
+  background: #333;
+}
+
+.postpress-table th:last-child,
+.postpress-table td:last-child {
+  width: 96px;
+  text-align: center;
 }
 
 
@@ -505,19 +583,8 @@ button[type="submit"]:hover {
   letter-spacing: 0.04em;
 }
 
-.binding-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  gap: 8px;
-  align-items: center;
-}
-
 .binding-item input[type="checkbox"] {
   margin: 0;
-}
-
-.binding-item input[type="number"] {
-  width: 100px;
 }
 
 .calculator-btn {
@@ -532,10 +599,59 @@ button[type="submit"]:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  font-weight: 700;
 }
 
 .special-processes-total input {
-  flex: 1;
+  max-width: 180px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid #dedede;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.summary-table th,
+.summary-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+}
+
+.summary-table td:last-child {
+  width: 180px;
+  text-align: right;
+  font-weight: 700;
+}
+
+.summary-section-row th {
+  background: #1d1d1b;
+  color: #fcd116;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 13px;
+}
+
+.summary-total-row td {
+  background: #fff7d3;
+  font-weight: 800;
+}
+
+.summary-final-row td {
+  background: #d62800;
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.summary-table tr:last-child td {
+  border-bottom: 0;
 }
 
 /* Wizard Styles */

@@ -498,14 +498,14 @@ function populateSectionData(section, data) {
           if (checkbox) {
             checkbox.checked = true;
             const costInput = checkbox.closest('.binding-item').querySelector('input[name="binding-cost[]"]');
-            if (costInput) costInput.value = binding.cost;
+            if (costInput) setHiddenAmount(costInput, binding.cost);
           }
         });
       }
       if (data.specialProcesses) {
         data.specialProcesses.forEach(process => {
           const costInput = document.querySelector(`input[data-process-id="${process.id}"]`);
-          if (costInput) costInput.value = process.cost;
+          if (costInput) setHiddenAmount(costInput, process.cost);
         });
         updateSpecialProcessesTotal();
       }
@@ -689,6 +689,28 @@ function buildCostingDataFromDraft(allData) {
       special_processes_total: specialProcessesTotal
     }
   };
+}
+
+function formatAmount(value) {
+  const number = parseFloat(value || 0);
+  return Number.isFinite(number) ? number.toFixed(2) : '0.00';
+}
+
+function setHiddenAmount(input, value) {
+  if (!input) return;
+  input.value = formatAmount(value);
+  const row = input.closest('tr') || input.parentElement;
+  const selector = input.id
+    ? `[data-display-input="${input.id}"]`
+    : `[data-display-for="${input.getAttribute('name')}"]`;
+  const display = row?.querySelector(selector) || document.querySelector(selector);
+  if (display) display.textContent = formatAmount(value);
+}
+
+function resetAmountDisplays(container) {
+  container?.querySelectorAll('.amount-display').forEach(display => {
+    display.textContent = '0.00';
+  });
 }
 
 async function generateQuotation(jobId) {
@@ -897,6 +919,25 @@ function setMachineRow(row, machine) {
   }
 }
 
+function updateQuantityUnitHint(row, material, fallbackLabel = 'item') {
+  const quantityInput = row?.querySelector('input[name$="material-quantity[]"]');
+  const unitHint = row?.querySelector('.unit-hint');
+  if (!quantityInput) return;
+
+  const unit = (material?.unit_of_measure || '').toString().trim();
+  if (unit) {
+    quantityInput.placeholder = `Quantity (${unit})`;
+    quantityInput.title = `Enter quantity in ${unit}`;
+    quantityInput.dataset.unit = unit;
+    if (unitHint) unitHint.textContent = unit;
+  } else {
+    quantityInput.placeholder = `Select ${fallbackLabel} first`;
+    quantityInput.title = '';
+    delete quantityInput.dataset.unit;
+    if (unitHint) unitHint.textContent = 'unit';
+  }
+}
+
 function setProcessRow(row, process) {
   const select = row.querySelector('select[name="process-id[]"]');
   const quantityInput = row.querySelector('input[name="process-quantity[]"]');
@@ -981,7 +1022,7 @@ function populateCostSheetFromJob(job) {
         checkbox.checked = true;
         const costInput = checkbox.closest('.binding-item').querySelector('input[name="binding-cost[]"]');
         if (costInput) {
-          costInput.value = bindingItem.cost || 0;
+          setHiddenAmount(costInput, bindingItem.cost || 0);
         }
       }
     });
@@ -1165,6 +1206,8 @@ materialsList.addEventListener('click', (e) => {
       const inputs = item.querySelectorAll('input');
       selects.forEach(select => select.value = '');
       inputs.forEach(input => input.value = '');
+      resetAmountDisplays(item);
+      updateQuantityUnitHint(item, null, 'material');
       updateCostSummary();
     }
   }
@@ -1200,6 +1243,8 @@ if (paperMaterialsList) {
         const inputs = item.querySelectorAll('input');
         selects.forEach(select => select.value = '');
         inputs.forEach(input => input.value = '');
+        resetAmountDisplays(item);
+        updateQuantityUnitHint(item, null, 'paper');
         updateCostSummary();
       }
     }
@@ -1238,6 +1283,7 @@ machinesList.addEventListener('click', (e) => {
       const inputs = item.querySelectorAll('input');
       selects.forEach(select => select.value = '');
       inputs.forEach(input => input.value = '');
+      resetAmountDisplays(item);
       updateCostSummary();
     }
   }
@@ -1331,19 +1377,22 @@ applyRateBtn.addEventListener('click', () => {
 });
 
 // Binding calculator event listeners
-bindingCalculateBtn.addEventListener('click', () => {
+function updateBindingCalculatorResult() {
   const copies = parseFloat(bindingCalcCopies.value) || 0;
   const rate = parseFloat(bindingCalcRate.value) || 0;
   const setup = parseFloat(bindingCalcSetup.value) || 0;
   const result = (copies * rate) + setup;
   bindingCalcResult.value = result.toFixed(2);
-});
+}
+
+bindingCalculateBtn.addEventListener('click', updateBindingCalculatorResult);
 
 bindingApplyBtn.addEventListener('click', () => {
+  updateBindingCalculatorResult();
   if (currentBindingRow && bindingCalcResult.value) {
     const costInput = currentBindingRow.querySelector('input[name="binding-cost[]"]');
     if (costInput) {
-      costInput.value = bindingCalcResult.value;
+      setHiddenAmount(costInput, bindingCalcResult.value);
       updateCostSummary();
     }
     bindingCalculatorModal.style.display = 'none';
@@ -1352,23 +1401,34 @@ bindingApplyBtn.addEventListener('click', () => {
 });
 
 // Special processes calculator event listeners
-spCalculateBtn.addEventListener('click', () => {
+function updateSpecialProcessCalculatorResult() {
   const quantity = parseFloat(spCalcQuantity.value) || 0;
   const rate = parseFloat(spCalcRate.value) || 0;
   const result = quantity * rate;
   spCalcResult.value = result.toFixed(2);
-});
+}
+
+spCalculateBtn.addEventListener('click', updateSpecialProcessCalculatorResult);
 
 spApplyBtn.addEventListener('click', () => {
+  updateSpecialProcessCalculatorResult();
   if (currentSpecialProcessRow && spCalcResult.value) {
     const costInput = currentSpecialProcessRow.querySelector('input[name="special-process-cost[]"]');
     if (costInput) {
-      costInput.value = spCalcResult.value;
+      setHiddenAmount(costInput, spCalcResult.value);
       updateSpecialProcessesTotal();
     }
     specialProcessesCalculatorModal.style.display = 'none';
     resetSpecialProcessesCalculatorModal();
   }
+});
+
+[bindingCalcCopies, bindingCalcRate, bindingCalcSetup].forEach(input => {
+  input.addEventListener('input', updateBindingCalculatorResult);
+});
+
+[spCalcQuantity, spCalcRate].forEach(input => {
+  input.addEventListener('input', updateSpecialProcessCalculatorResult);
 });
 
 // processesList.addEventListener('change', (e) => {
@@ -1692,13 +1752,13 @@ function populateBindings() {
   bindingList.innerHTML = '';
   const uniqueBindings = [...new Map(bindings.map(binding => [binding.id, binding])).values()];
   uniqueBindings.forEach(binding => {
-    const bindingItem = document.createElement('div');
+    const bindingItem = document.createElement('tr');
     bindingItem.className = 'binding-item';
     bindingItem.innerHTML = `
-      <input type="checkbox" name="binding-selected[]" value="${binding.id}" data-binding-id="${binding.id}">
-      <span>${binding.method}</span>
-      <input type="number" name="binding-cost[]" min="0" step="0.01" placeholder="Cost" readonly>
-      <button type="button" class="calculator-btn" title="Calculate Binding Cost" data-binding-id="${binding.id}"><i class="bi bi-calculator"></i></button>
+      <td><input type="checkbox" name="binding-selected[]" value="${binding.id}" data-binding-id="${binding.id}"></td>
+      <td>${binding.method}</td>
+      <td><input type="hidden" name="binding-cost[]"><span class="amount-display" data-display-for="binding-cost[]">0.00</span></td>
+      <td><button type="button" class="calculator-btn" title="Calculate Binding Cost" data-binding-id="${binding.id}"><i class="bi bi-calculator"></i></button></td>
     `;
     bindingList.appendChild(bindingItem);
   });
@@ -1708,15 +1768,17 @@ function populateSpecialProcesses() {
   specialProcessesList.innerHTML = '';
   const uniqueProcesses = [...new Map(specialProcesses.map(process => [process.id, process])).values()];
   uniqueProcesses.forEach(process => {
-    const processItem = document.createElement('div');
+    const processItem = document.createElement('tr');
     processItem.className = 'special-process-item';
     processItem.innerHTML = `
-      <div class="process-info">
-        <span class="process-name">${process.name}</span>
-        <span class="process-rate">(${process.rate_per_unit} UGX/${process.unit_type || 'unit'})</span>
-      </div>
-      <input type="number" name="special-process-cost[]" data-process-id="${process.id}" min="0" step="0.01" placeholder="Cost" readonly>
-      <button type="button" class="calculator-btn" title="Calculate" data-process-id="${process.id}"><i class="bi bi-calculator"></i></button>
+      <td>
+        <div class="process-info">
+          <span class="process-name">${process.name}</span>
+          <span class="process-rate">${process.unit_type || 'unit'}</span>
+        </div>
+      </td>
+      <td><input type="hidden" name="special-process-cost[]" data-process-id="${process.id}"><span class="amount-display" data-display-for="special-process-cost[]">0.00</span></td>
+      <td><button type="button" class="calculator-btn" title="Calculate" data-process-id="${process.id}"><i class="bi bi-calculator"></i></button></td>
     `;
     specialProcessesList.appendChild(processItem);
   });
@@ -1731,9 +1793,9 @@ function addMaterialItem() {
         <option value="">Select material...</option>
       </select>
     </td>
-    <td><input type="number" name="material-quantity[]" min="0.01" step="0.01" required></td>
-    <td><input type="number" name="material-cost[]" min="0" step="0.01" readonly></td>
-    <td><input type="number" name="material-subtotal[]" readonly></td>
+    <td><div class="quantity-with-unit"><input type="number" name="material-quantity[]" min="0.01" step="0.01" placeholder="Select material first" required><span class="unit-hint">unit</span></div></td>
+    <td><input type="hidden" name="material-cost[]"><span class="amount-display" data-display-for="material-cost[]">0.00</span></td>
+    <td><input type="hidden" name="material-subtotal[]"><span class="amount-display" data-display-for="material-subtotal[]">0.00</span></td>
     <td><button type="button" class="remove-material" title="Remove material" aria-label="Remove material"><i class="bi bi-trash3"></i></button></td>
   `;
   materialsList.appendChild(materialItem);
@@ -1749,9 +1811,9 @@ function addPaperItem() {
         <option value="">Select paper...</option>
       </select>
     </td>
-    <td><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" required></td>
-    <td><input type="number" name="paper-material-cost[]" min="0" step="0.01" readonly></td>
-    <td><input type="number" name="paper-material-subtotal[]" readonly></td>
+    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Select paper first" required><span class="unit-hint">unit</span></div></td>
+    <td><input type="hidden" name="paper-material-cost[]"><span class="amount-display" data-display-for="paper-material-cost[]">0.00</span></td>
+    <td><input type="hidden" name="paper-material-subtotal[]"><span class="amount-display" data-display-for="paper-material-subtotal[]">0.00</span></td>
     <td><button type="button" class="remove-paper-material" title="Remove paper" aria-label="Remove paper"><i class="bi bi-trash3"></i></button></td>
   `;
   paperMaterialsList.appendChild(paperItem);
@@ -1769,6 +1831,8 @@ function resetPaperMaterials() {
     const inputs = firstItem.querySelectorAll('input');
     selects.forEach(select => select.value = '');
     inputs.forEach(input => input.value = '');
+    resetAmountDisplays(firstItem);
+    updateQuantityUnitHint(firstItem, null, 'paper');
   }
 }
 
@@ -1783,8 +1847,8 @@ function addMachineItem() {
     </td>
     <td><input type="number" name="machine-impressions[]" min="1" required></td>
     <td><input type="number" name="machine-setup-percent[]" min="0" step="0.1" placeholder="Setup %" value="10"></td>
-    <td><input type="number" name="machine-running[]" readonly></td>
-    <td><input type="number" name="machine-subtotal[]" readonly></td>
+    <td><input type="hidden" name="machine-running[]"><span class="amount-display" data-display-for="machine-running[]">0.00</span></td>
+    <td><input type="hidden" name="machine-subtotal[]"><span class="amount-display" data-display-for="machine-subtotal[]">0.00</span></td>
     <td><button type="button" class="remove-machine" title="Remove machine" aria-label="Remove machine"><i class="bi bi-trash3"></i></button></td>
   `;
   machinesList.appendChild(machineItem);
@@ -1831,6 +1895,8 @@ function resetMaterials() {
     const inputs = firstItem.querySelectorAll('input');
     selects.forEach(select => select.value = '');
     inputs.forEach(input => input.value = '');
+    resetAmountDisplays(firstItem);
+    updateQuantityUnitHint(firstItem, null, 'material');
   }
 }
 
@@ -1847,6 +1913,7 @@ function resetMachines() {
     const inputs = firstItem.querySelectorAll('input');
     selects.forEach(select => select.value = '');
     inputs.forEach(input => input.value = '');
+    resetAmountDisplays(firstItem);
   }
 }
 
@@ -1872,12 +1939,15 @@ function updateMaterialCost(selectElement) {
   const item = selectElement.closest('tr');
   const costInput = item.querySelector('input[name$="material-cost[]"]');
   const quantityInput = item.querySelector('input[name$="material-quantity[]"]');
+  const fallbackLabel = selectElement.name === 'paper-material-id[]' ? 'paper' : 'material';
+
+  updateQuantityUnitHint(item, material, fallbackLabel);
 
   if (material && costInput && quantityInput) {
-    costInput.value = material.unit_cost;
+    setHiddenAmount(costInput, material.unit_cost);
     updateMaterialSubtotal(quantityInput);
   } else if (costInput && quantityInput) {
-    costInput.value = '';
+    setHiddenAmount(costInput, 0);
     updateMaterialSubtotal(quantityInput);
   }
 }
@@ -1889,7 +1959,7 @@ function updateMaterialSubtotal(quantityInput) {
 
   if (costInput && subtotalInput) {
     const subtotal = parseFloat(costInput.value || 0) * parseFloat(quantityInput.value || 0);
-    subtotalInput.value = subtotal.toFixed(2);
+    setHiddenAmount(subtotalInput, subtotal);
     // Store subtotal for later calculation
     item.dataset.subtotal = subtotal;
     updateCostSummary();
@@ -1931,11 +2001,11 @@ function updateMachineCost(selectElement) {
   if (machine && setupPercentInput && runningInput && impressionsInput) {
     // Setup percent is editable, default to 10%
     if (!setupPercentInput.value) setupPercentInput.value = '10';
-    runningInput.value = machine.cost_per_impression;
+    setHiddenAmount(runningInput, machine.cost_per_impression);
     updateMachineSubtotal(impressionsInput);
   } else if (setupPercentInput && runningInput && impressionsInput) {
     setupPercentInput.value = '10';
-    runningInput.value = '';
+    setHiddenAmount(runningInput, 0);
     updateMachineSubtotal(impressionsInput);
   }
 }
@@ -1951,7 +2021,7 @@ function updateMachineSubtotal(impressionsInput) {
     const setupPercent = parseFloat(setupPercentInput.value || 0);
     const setupCost = runningCost * (setupPercent / 100);
     const subtotal = setupCost + runningCost;
-    subtotalInput.value = subtotal.toFixed(2);
+    setHiddenAmount(subtotalInput, subtotal);
     item.dataset.subtotal = subtotal;
     updateCostSummary();
   }
@@ -2254,11 +2324,11 @@ function updatePlatesCostSummary() {
   const platesTotal = a1Subtotal + a2Subtotal + a3Subtotal;
   
   const platesA1SubtotalElem = document.getElementById('plates-a1-subtotal');
-  if (platesA1SubtotalElem) platesA1SubtotalElem.value = a1Subtotal.toFixed(2);
+  setHiddenAmount(platesA1SubtotalElem, a1Subtotal);
   const platesA2SubtotalElem = document.getElementById('plates-a2-subtotal');
-  if (platesA2SubtotalElem) platesA2SubtotalElem.value = a2Subtotal.toFixed(2);
+  setHiddenAmount(platesA2SubtotalElem, a2Subtotal);
   const platesA3SubtotalElem = document.getElementById('plates-a3-subtotal');
-  if (platesA3SubtotalElem) platesA3SubtotalElem.value = a3Subtotal.toFixed(2);
+  setHiddenAmount(platesA3SubtotalElem, a3Subtotal);
   
   const platesTotalElem = document.getElementById('plates-total');
   if (platesTotalElem) platesTotalElem.textContent = platesTotal.toFixed(2);
@@ -2394,6 +2464,7 @@ function openBindingCalculator(bindingId) {
   bindingCalcCopies.value = '1';
   bindingCalcSetup.value = '0';
   bindingCalcResult.value = '';
+  updateBindingCalculatorResult();
   
   // Open the modal
   bindingCalculatorModal.style.display = 'block';
@@ -2428,6 +2499,7 @@ function openSpecialProcessCalculator(processId) {
   spCalcRate.value = process.rate_per_unit || 0;
   spCalcQuantity.value = '1';
   spCalcResult.value = '';
+  updateSpecialProcessCalculatorResult();
   
   // Open the modal
   specialProcessesCalculatorModal.style.display = 'block';

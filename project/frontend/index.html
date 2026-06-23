@@ -210,14 +210,14 @@
                         <option value="">Select paper...</option>
                       </select>
                     </td>
-                    <td><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" required></td>
-                    <td><input type="number" name="paper-material-cost[]" min="0" step="0.01" readonly></td>
-                    <td><input type="number" name="paper-material-subtotal[]" readonly></td>
+                    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Select paper first" required><span class="unit-hint">unit</span></div></td>
+                    <td><input type="hidden" name="paper-material-cost[]"><span class="amount-display" data-display-for="paper-material-cost[]">0.00</span></td>
+                    <td><input type="hidden" name="paper-material-subtotal[]"><span class="amount-display" data-display-for="paper-material-subtotal[]">0.00</span></td>
                     <td><button type="button" class="remove-paper-material" style="display: none;" title="Remove paper" aria-label="Remove paper"><i class="bi bi-trash3"></i></button></td>
                   </tr>
                 </tbody>
               </table>
-              <button type="button" id="add-paper">Add Paper</button>
+              <button type="button" id="add-paper" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Paper</button>
             </div>
 
             <!-- Materials Section -->
@@ -240,14 +240,14 @@
                         <option value="">Select material...</option>
                       </select>
                     </td>
-                    <td><input type="number" name="material-quantity[]" min="0.01" step="0.01" required></td>
-                    <td><input type="number" name="material-cost[]" min="0" step="0.01" readonly></td>
-                    <td><input type="number" name="material-subtotal[]" readonly></td>
+                    <td><div class="quantity-with-unit"><input type="number" name="material-quantity[]" min="0.01" step="0.01" placeholder="Select material first" required><span class="unit-hint">unit</span></div></td>
+                    <td><input type="hidden" name="material-cost[]"><span class="amount-display" data-display-for="material-cost[]">0.00</span></td>
+                    <td><input type="hidden" name="material-subtotal[]"><span class="amount-display" data-display-for="material-subtotal[]">0.00</span></td>
                     <td><button type="button" class="remove-material" style="display: none;" title="Remove material" aria-label="Remove material"><i class="bi bi-trash3"></i></button></td>
                   </tr>
                 </tbody>
               </table>
-              <button type="button" id="add-material">Add Material</button>
+              <button type="button" id="add-material" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Material</button>
 
               <!-- Plates Section (Mini) -->
               <div class="form-section-mini">
@@ -266,19 +266,19 @@
                       <td>A1</td>
                       <td><input type="number" id="plates-a1-qty" name="plates-a1-qty" min="0" value="0"></td>
                       <td><input type="number" id="plates-a1-cost" name="plates-a1-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
-                      <td><input type="number" id="plates-a1-subtotal" readonly></td>
+                      <td><input type="hidden" id="plates-a1-subtotal"><span class="amount-display" data-display-input="plates-a1-subtotal">0.00</span></td>
                     </tr>
                     <tr>
                       <td>A2</td>
                       <td><input type="number" id="plates-a2-qty" name="plates-a2-qty" min="0" value="0"></td>
                       <td><input type="number" id="plates-a2-cost" name="plates-a2-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
-                      <td><input type="number" id="plates-a2-subtotal" readonly></td>
+                      <td><input type="hidden" id="plates-a2-subtotal"><span class="amount-display" data-display-input="plates-a2-subtotal">0.00</span></td>
                     </tr>
                     <tr>
                       <td>A3</td>
                       <td><input type="number" id="plates-a3-qty" name="plates-a3-qty" min="0" value="0"></td>
                       <td><input type="number" id="plates-a3-cost" name="plates-a3-cost" min="0" step="0.01" placeholder="Cost per plate"></td>
-                      <td><input type="number" id="plates-a3-subtotal" readonly></td>
+                      <td><input type="hidden" id="plates-a3-subtotal"><span class="amount-display" data-display-input="plates-a3-subtotal">0.00</span></td>
                     </tr>
                   </tbody>
                 </table>
@@ -308,13 +308,13 @@
                     </td>
                     <td><input type="number" name="machine-impressions[]" min="1" required></td>
                     <td><input type="number" name="machine-setup-percent[]" min="0" step="0.1" placeholder="Setup %" value="10"></td>
-                    <td><input type="number" name="machine-running[]" readonly></td>
-                    <td><input type="number" name="machine-subtotal[]" readonly></td>
+                    <td><input type="hidden" name="machine-running[]"><span class="amount-display" data-display-for="machine-running[]">0.00</span></td>
+                    <td><input type="hidden" name="machine-subtotal[]"><span class="amount-display" data-display-for="machine-subtotal[]">0.00</span></td>
                     <td><button type="button" class="remove-machine" style="display: none;" title="Remove machine" aria-label="Remove machine"><i class="bi bi-trash3"></i></button></td>
                   </tr>
                 </tbody>
               </table>
-              <button type="button" id="add-machine">Add Machine</button>
+              <button type="button" id="add-machine" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Machine</button>
             </div>
           </div>
 
@@ -325,26 +325,51 @@
             <!-- Binding Section -->
             <div class="post-press-subsection">
               <h4>Binding</h4>
-              <div class="binding-list" id="binding-list">
-                <!-- Binding items will be populated by JavaScript -->
-              </div>
-              <div class="other-binding">
-                <label for="binding-other-name">Other Binding Method</label>
-                <input type="text" id="binding-other-name" name="binding-other-name" placeholder="Describe other binding method">
-                <input type="number" id="binding-other-cost" name="binding-other-cost" min="0" step="0.01" placeholder="Other binding cost">
+              <table class="costing-table postpress-table">
+                <thead>
+                  <tr>
+                    <th>Use</th>
+                    <th>Binding Method</th>
+                    <th>Calculated Cost</th>
+                    <th>Calculator</th>
+                  </tr>
+                </thead>
+                <tbody id="binding-list"></tbody>
+              </table>
+              <div class="other-cost-row">
+                <div class="form-group">
+                  <label for="binding-other-name">Other Binding Method</label>
+                  <input type="text" id="binding-other-name" name="binding-other-name" placeholder="Describe other binding method">
+                </div>
+                <div class="form-group">
+                  <label for="binding-other-cost">Other Binding Cost</label>
+                  <input type="number" id="binding-other-cost" name="binding-other-cost" min="0" step="0.01" placeholder="0.00">
+                </div>
               </div>
             </div>
 
             <!-- Special Processes Section -->
             <div class="post-press-subsection" style="margin-top: 40px; border-top: 1px solid #ddd; padding-top: 20px;">
               <h4>Special Processes</h4>
-              <div class="special-processes-list" id="special-processes-list">
-                <!-- Special process items will be populated by JavaScript -->
-              </div>
-              <div class="other-special-process">
-                <label for="special-process-other-name">Other Special Process</label>
-                <input type="text" id="special-process-other-name" name="special-process-other-name" placeholder="Describe other special process">
-                <input type="number" id="special-process-other-cost" name="special-process-other-cost" min="0" step="0.01" placeholder="Other special process cost">
+              <table class="costing-table postpress-table">
+                <thead>
+                  <tr>
+                    <th>Special Process</th>
+                    <th>Calculated Cost</th>
+                    <th>Calculator</th>
+                  </tr>
+                </thead>
+                <tbody id="special-processes-list"></tbody>
+              </table>
+              <div class="other-cost-row">
+                <div class="form-group">
+                  <label for="special-process-other-name">Other Special Process</label>
+                  <input type="text" id="special-process-other-name" name="special-process-other-name" placeholder="Describe other special process">
+                </div>
+                <div class="form-group">
+                  <label for="special-process-other-cost">Other Process Cost</label>
+                  <input type="number" id="special-process-other-cost" name="special-process-other-cost" min="0" step="0.01" placeholder="0.00">
+                </div>
               </div>
               <div class="special-processes-total">
                 <label for="special-processes-total">Total Special Processes Cost:</label>
@@ -380,7 +405,7 @@
                   </div>
                 </div>
                 <div class="modal-buttons">
-                  <button type="button" id="binding-calculate">Calculate</button>
+                  <button type="button" id="binding-calculate" style="display:none;">Calculate</button>
                   <button type="button" id="binding-apply">Apply Cost</button>
                 </div>
               </div>
@@ -412,7 +437,7 @@
                   </div>
                 </div>
                 <div class="modal-buttons">
-                  <button type="button" id="sp-calculate">Calculate</button>
+                  <button type="button" id="sp-calculate" style="display:none;">Calculate</button>
                   <button type="button" id="sp-apply">Apply Cost</button>
                 </div>
               </div>
@@ -517,33 +542,32 @@
           <!-- Cost Summary -->
           <div class="form-section wizard-section" data-section="summary" style="display: none;">
             <h3>Cost Summary</h3>
-            <div class="cost-summary">
-              <div class="summary-category"><strong>Materials</strong></div>
-              <div class="summary-row"><span>Materials Subtotal:</span> <span id="materials-total">0</span></div>
-              <div class="summary-row"><span>Plates Subtotal:</span> <span id="plates-total">0</span></div>
-              
-              <div class="summary-category"><strong>Pre Press</strong></div>
-              <div class="summary-row"><span>Design Subtotal:</span> <span id="design-total">0</span></div>
-              <div class="summary-row"><span>Typesetting Subtotal:</span> <span id="typesetting-total">0</span></div>
-              <div class="summary-row"><span>Wastage Subtotal:</span> <span id="wastage-total">0</span></div>
-              <div class="summary-row"><span>Subcontract Subtotal:</span> <span id="subcontract-total">0</span></div>
-              
-              <div class="summary-category"><strong>Press</strong></div>
-              <div class="summary-row"><span>Machines Subtotal:</span> <span id="machines-total">0</span></div>
-              
-              <div class="summary-category"><strong>Post Press</strong></div>
-              <div class="summary-row"><span>Binding Subtotal:</span> <span id="binding-total">0</span></div>
-              <div class="summary-row"><span>Special Processes Subtotal:</span> <span id="processes-total">0</span></div>
-              <div class="summary-row"><span>Storage Subtotal:</span> <span id="storage-total">0</span></div>
-              <div class="summary-row"><span>Transport Subtotal:</span> <span id="transport-total">0</span></div>
-              <div class="summary-row"><span>Overhead:</span> <span id="overhead-total">0</span></div>
-              <div class="summary-row total-row"><strong>Total Cost of Production:</strong> <strong id="production-total">0</strong></div>
-              <div class="summary-row"><span>Commission:</span> <span id="commission-total">0</span></div>
-              <div class="summary-row"><span>Markup:</span> <span id="markup-amount">0</span></div>
-              <div class="summary-row"><span>Selling Price:</span> <span id="selling-price">0</span></div>
-              <div class="summary-row"><span>VAT (18%):</span> <span id="vat-amount">0</span></div>
-              <div class="summary-row final-total"><strong>Invoice Total:</strong> <strong id="invoice-total">0</strong></div>
-            </div>
+            <table class="summary-table">
+              <tbody>
+                <tr class="summary-section-row"><th colspan="3">Materials</th></tr>
+                <tr><td>Materials Subtotal</td><td></td><td id="materials-total">0</td></tr>
+                <tr><td>Plates Subtotal</td><td></td><td id="plates-total">0</td></tr>
+                <tr class="summary-section-row"><th colspan="3">Pre Press</th></tr>
+                <tr><td>Design Subtotal</td><td></td><td id="design-total">0</td></tr>
+                <tr><td>Typesetting Subtotal</td><td></td><td id="typesetting-total">0</td></tr>
+                <tr><td>Wastage Subtotal</td><td></td><td id="wastage-total">0</td></tr>
+                <tr><td>Subcontract Subtotal</td><td></td><td id="subcontract-total">0</td></tr>
+                <tr class="summary-section-row"><th colspan="3">Press</th></tr>
+                <tr><td>Machines Subtotal</td><td></td><td id="machines-total">0</td></tr>
+                <tr class="summary-section-row"><th colspan="3">Post Press</th></tr>
+                <tr><td>Binding Subtotal</td><td></td><td id="binding-total">0</td></tr>
+                <tr><td>Special Processes Subtotal</td><td></td><td id="processes-total">0</td></tr>
+                <tr><td>Storage Subtotal</td><td></td><td id="storage-total">0</td></tr>
+                <tr><td>Transport Subtotal</td><td></td><td id="transport-total">0</td></tr>
+                <tr><td>Overhead</td><td></td><td id="overhead-total">0</td></tr>
+                <tr class="summary-total-row"><td>Total Cost of Production</td><td></td><td id="production-total">0</td></tr>
+                <tr><td>Commission</td><td></td><td id="commission-total">0</td></tr>
+                <tr><td>Markup</td><td></td><td id="markup-amount">0</td></tr>
+                <tr><td>Selling Price</td><td></td><td id="selling-price">0</td></tr>
+                <tr><td>VAT (18%)</td><td></td><td id="vat-amount">0</td></tr>
+                <tr class="summary-final-row"><td>Invoice Total</td><td></td><td id="invoice-total">0</td></tr>
+              </tbody>
+            </table>
           </div>
           </div>
 
