@@ -89,6 +89,9 @@ app.use('/api/special-processes', specialProcessesRouter);
 const costingRouter = require('./routes/costing');
 app.use('/api/costing', costingRouter);
 
+const quotationsRouter = require('./routes/quotations');
+app.use('/api/quotations', quotationsRouter);
+
 const systemSettingsRouter = require('./routes/system-settings');
 app.use('/api/system-settings', systemSettingsRouter);
 

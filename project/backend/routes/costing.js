@@ -3,265 +3,56 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
-const fs = require('fs');
-const path = require('path');
 const { authenticateToken } = require('./auth');
+const { toNumber, getQuotationItemsData, drawQuotationPdf } = require('../lib/quotationPdf');
 
-function toNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function formatUGX(value) {
-  return toNumber(value).toLocaleString();
-}
-
-function getLogoPath() {
-  const logoPath = path.join(__dirname, '..', '..', 'UPPC-LOGO.png');
-  return fs.existsSync(logoPath) ? logoPath : null;
-}
-
-async function getQuotationData(jobId) {
-  const jobQuery = `
-    SELECT j.*, c.name as client_name, c.type as client_type, c.address as client_address,
-           c.contact as client_contact, c.email as client_email, mt.margin_percentage
-    FROM jobs j
-    JOIN clients c ON j.client_id = c.id
-    JOIN margin_tiers mt ON c.margin_tier_id = mt.id
-    WHERE j.id = $1
-  `;
-  const jobResult = await pool.query(jobQuery, [jobId]);
-
-  if (jobResult.rows.length === 0) {
-    return null;
+// Resolves the client to bill and the quotation to attach a new item to.
+// If quotation_id is supplied, the item joins that existing quotation (client is
+// taken from the quotation, ignoring any client/client_id also sent). Otherwise a
+// client is created-or-found from `client`/`client_id`, and a new quotation is opened for it.
+async function resolveQuotationAndClient(conn, { quotation_id, client_id, client }) {
+  if (quotation_id) {
+    const quotationResult = await conn.query('SELECT id, client_id FROM quotations WHERE id = $1', [quotation_id]);
+    if (quotationResult.rows.length === 0) {
+      throw new Error('Quotation not found');
+    }
+    return { quotationId: quotationResult.rows[0].id, clientId: quotationResult.rows[0].client_id };
   }
 
-  const [materials, machines, bindings, processes, additionalCosts] = await Promise.all([
-    pool.query(`
-      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
-      FROM job_materials jm
-      JOIN materials m ON jm.material_id = m.id
-      WHERE jm.job_id = $1
-    `, [jobId]),
-    pool.query(`
-      SELECT jm.*, m.name as machine_name
-      FROM job_machines jm
-      JOIN machines m ON jm.machine_id = m.id
-      WHERE jm.job_id = $1
-    `, [jobId]),
-    pool.query(`
-      SELECT jb.*, b.method as binding_name
-      FROM job_bindings jb
-      JOIN bindings b ON jb.binding_id = b.id
-      WHERE jb.job_id = $1
-    `, [jobId]),
-    pool.query(`
-      SELECT jsp.*, sp.name as process_name
-      FROM job_special_processes jsp
-      JOIN special_processes sp ON jsp.special_process_id = sp.id
-      WHERE jsp.job_id = $1
-    `, [jobId]),
-    pool.query('SELECT * FROM job_additional_costs WHERE job_id = $1', [jobId])
-  ]);
+  let clientId = client_id ? parseInt(client_id, 10) : null;
 
-  return {
-    job: jobResult.rows[0],
-    materials: materials.rows,
-    machines: machines.rows,
-    bindings: bindings.rows,
-    processes: processes.rows,
-    additionalCosts: additionalCosts.rows
-  };
-}
-
-function calculateQuotationTotals(data) {
-  const { job, materials, machines, bindings, processes, additionalCosts } = data;
-  let productionTotal = 0;
-
-  materials.forEach(material => {
-    productionTotal += toNumber(material.quantity) * toNumber(material.unit_cost);
-  });
-
-  machines.forEach(machine => {
-    productionTotal += (toNumber(machine.impressions) * toNumber(machine.cost_per_impression)) + toNumber(machine.setup_cost);
-  });
-
-  bindings.forEach(binding => {
-    productionTotal += binding.cost !== null && binding.cost !== undefined
-      ? toNumber(binding.cost)
-      : toNumber(binding.copies) * toNumber(binding.cost_per_copy);
-  });
-
-  processes.forEach(process => {
-    productionTotal += toNumber(process.quantity) * toNumber(process.cost_per_unit);
-  });
-
-  if (additionalCosts.length > 0) {
-    const costs = additionalCosts[0];
-    productionTotal += toNumber(costs.design_pages) * toNumber(costs.design_rate);
-    productionTotal += toNumber(costs.typesetting_pages) * toNumber(costs.typesetting_rate);
-    productionTotal += toNumber(costs.ctp_cost);
-    productionTotal += toNumber(costs.wastage_cost);
-    productionTotal += toNumber(costs.subcontract_cost);
-    productionTotal += toNumber(costs.storage_cost);
-    productionTotal += toNumber(costs.transport_cost);
-    productionTotal += toNumber(costs.overhead_cost);
-    productionTotal += toNumber(costs.special_processes_total);
+  if (!clientId) {
+    const existingClient = await conn.query(
+      'SELECT id FROM clients WHERE name = $1 AND email = $2',
+      [client.name, client.email || '']
+    );
+    if (existingClient.rows.length > 0) {
+      clientId = existingClient.rows[0].id;
+    } else {
+      const inserted = await conn.query(
+        'INSERT INTO clients (name, type, address, contact, email, margin_tier_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [client.name, client.type, client.address, client.contact, client.email, client.margin_tier_id]
+      );
+      clientId = inserted.rows[0].id;
+    }
   }
 
-  const additionalCostRow = additionalCosts[0] || {};
-  const commissionAmount = toNumber(additionalCostRow.commission_cost);
-  const marginAmount = productionTotal * (toNumber(job.margin_percentage) / 100);
-  const sellingPrice = productionTotal + commissionAmount + marginAmount;
-  const vatAmount = sellingPrice * 0.18;
-
-  return {
-    productionTotal,
-    commissionAmount,
-    marginAmount,
-    sellingPrice,
-    vatAmount,
-    finalTotal: sellingPrice + vatAmount,
-    rate: toNumber(job.quantity) > 0 ? sellingPrice / toNumber(job.quantity) : sellingPrice
-  };
-}
-
-function drawHorizontalLine(doc, x1, x2, y, width = 1) {
-  doc.lineWidth(width).moveTo(x1, y).lineTo(x2, y).stroke();
-}
-
-function drawUnderlineField(doc, label, value, x, y, labelWidth, fieldWidth) {
-  doc.font('Helvetica').fontSize(10).fillColor('black').text(label, x, y);
-  doc.text(value || '', x + labelWidth, y, { width: fieldWidth, height: 14 });
-  drawHorizontalLine(doc, x + labelWidth, x + labelWidth + fieldWidth, y + 14, 0.8);
-}
-
-function drawQuotationPdf(doc, jobId, data) {
-  const { job } = data;
-  const totals = calculateQuotationTotals(data);
-  const logoPath = getLogoPath();
-  const quoteNo = String(jobId).padStart(6, '0');
-  const quoteDate = new Date().toLocaleDateString('en-GB');
-  const pageLeft = 34;
-  const pageRight = 561;
-  const pageWidth = pageRight - pageLeft;
-  const description = [job.name, job.description].filter(Boolean).join(' - ');
-
-  doc.fillColor('black').lineJoin('miter');
-
-  if (logoPath) {
-    doc.image(logoPath, 246, 24, { fit: [105, 54], align: 'center' });
-  }
-
-  doc.font('Helvetica').fontSize(22).text('UGANDA', pageLeft, 82, { width: pageWidth, align: 'center' });
-  doc.fontSize(21).text('PRINTING AND PUBLISHING', pageLeft, 109, { width: pageWidth, align: 'center' });
-  doc.fontSize(21).text('CORPORATION', pageLeft, 135, { width: pageWidth, align: 'center' });
-  doc.fontSize(8.8).text(
-    'P.O. Box 33, Entebbe, Uganda, Telephones: 0414-320639, Toll-Free: 0800111467, WhatsApp: +256783914332',
-    pageLeft,
-    164,
-    { width: pageWidth, align: 'center' }
-  );
-  drawHorizontalLine(doc, pageLeft, pageRight, 181, 1.4);
-
-  doc.font('Helvetica-Bold').fontSize(18).text('QUOTATION', pageLeft, 190, { width: pageWidth, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(17).fillColor('#b41414').text(quoteNo, 456, 190, { width: 80, align: 'center' });
-  doc.fillColor('black');
-  drawHorizontalLine(doc, pageLeft, pageRight, 215, 1.4);
-
-  drawUnderlineField(doc, 'To:', job.client_name, pageLeft, 230, 24, 300);
-  drawUnderlineField(doc, 'Enquiry Ref:', '', 350, 230, 70, 130);
-  drawUnderlineField(doc, '', job.client_address || '', pageLeft + 24, 254, 0, 300);
-  drawUnderlineField(doc, '', job.client_contact || '', 350, 254, 0, 200);
-  drawUnderlineField(doc, '', job.client_email || '', pageLeft + 24, 278, 0, 300);
-  drawHorizontalLine(doc, pageLeft, pageRight, 304, 1.4);
-
-  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, 315);
-  drawUnderlineField(doc, 'Date:', quoteDate, 392, 315, 34, 125);
-  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, 337);
-
-  const tableTop = 358;
-  const tableLeft = pageLeft;
-  const colWidths = [105, 215, 80, 125];
-  const rowHeight = 23;
-  const tableRows = 13;
-  const tableWidth = colWidths.reduce((sum, width) => sum + width, 0);
-  const tableBottom = tableTop + rowHeight * (tableRows + 1);
-  const colX = [
-    tableLeft,
-    tableLeft + colWidths[0],
-    tableLeft + colWidths[0] + colWidths[1],
-    tableLeft + colWidths[0] + colWidths[1] + colWidths[2],
-    tableLeft + tableWidth
-  ];
-
-  doc.lineWidth(1.1).rect(tableLeft, tableTop, tableWidth, rowHeight * (tableRows + 1)).stroke();
-  for (let i = 1; i < colX.length - 1; i++) {
-    doc.moveTo(colX[i], tableTop).lineTo(colX[i], tableBottom).stroke();
-  }
-  for (let i = 1; i <= tableRows + 1; i++) {
-    doc.moveTo(tableLeft, tableTop + i * rowHeight).lineTo(tableLeft + tableWidth, tableTop + i * rowHeight).stroke();
-  }
-
-  doc.font('Helvetica-Bold').fontSize(11);
-  doc.text('Quantity', colX[0], tableTop + 6, { width: colWidths[0], align: 'center' });
-  doc.text('Description', colX[1], tableTop + 6, { width: colWidths[1], align: 'center' });
-  doc.text('Rate', colX[2], tableTop + 6, { width: colWidths[2], align: 'center' });
-  doc.text('Price', colX[3], tableTop + 6, { width: colWidths[3], align: 'center' });
-
-  doc.font('Helvetica').fontSize(10);
-  const itemY = tableTop + rowHeight + 6;
-  doc.text(formatUGX(job.quantity), colX[0] + 4, itemY, { width: colWidths[0] - 8, align: 'center' });
-  doc.text(description || 'Printing services', colX[1] + 6, itemY, { width: colWidths[1] - 12, height: rowHeight * 2 - 4 });
-  doc.text(formatUGX(totals.rate), colX[2] + 4, itemY, { width: colWidths[2] - 8, align: 'right' });
-  doc.text(formatUGX(totals.sellingPrice), colX[3] + 4, itemY, { width: colWidths[3] - 8, align: 'right' });
-
-  const totalsTop = tableBottom + 10;
-  doc.font('Helvetica-Bold').fontSize(8.5).text(
-    'THIS QUOTATION IS VALID FOR THIRTY DAYS FROM THE DATE HEREON\nAND IS SUBJECT TO THE CONDITIONS PRINTED OVERLEAF\nE&O.E.',
-    pageLeft,
-    totalsTop + 8,
-    { width: 310, lineGap: 2 }
+  const newQuotation = await conn.query(
+    'INSERT INTO quotations (client_id) VALUES ($1) RETURNING id',
+    [clientId]
   );
 
-  const totalLabelX = 360;
-  const totalBoxX = 438;
-  const totalBoxW = 123;
-  const totalBoxH = 24;
-  const totalRows = [
-    ['TOTAL GOODS', totals.sellingPrice],
-    ['VAT', totals.vatAmount],
-    ['TOTAL', totals.finalTotal]
-  ];
-  doc.font('Helvetica').fontSize(12);
-  totalRows.forEach(([label, value], index) => {
-    const y = totalsTop + index * 35;
-    doc.text(label, totalLabelX, y + 6, { width: 70, align: 'right' });
-    doc.rect(totalBoxX, y, totalBoxW, totalBoxH).stroke();
-    doc.font('Helvetica-Bold').fontSize(10).text(formatUGX(value), totalBoxX + 6, y + 7, { width: totalBoxW - 12, align: 'right' });
-    doc.font('Helvetica').fontSize(12);
-  });
-
-  const footerTop = totalsTop + 118;
-  doc.font('Helvetica').fontSize(11);
-  doc.text('Delivery', pageLeft, footerTop);
-  drawHorizontalLine(doc, pageLeft + 48, pageLeft + 358, footerTop + 14, 0.8);
-  doc.text('from receipt of order at factory', pageLeft + 364, footerTop);
-  doc.text('Terms', pageLeft, footerTop + 28);
-  drawHorizontalLine(doc, pageLeft + 48, pageRight, footerTop + 42, 0.8);
-  doc.text('Special conditions', pageLeft, footerTop + 56);
-  drawHorizontalLine(doc, pageLeft + 111, pageRight, footerTop + 70, 0.8);
-  drawHorizontalLine(doc, pageLeft, pageRight, footerTop + 94, 0.8);
-  doc.text('Yours faithfully,', pageLeft, footerTop + 118);
-  doc.text('for UGANDA PRINTING AND PUBLISHING CORPORATION', pageLeft, footerTop + 143);
+  return { quotationId: newQuotation.rows[0].id, clientId };
 }
 
-// Submit comprehensive costing
+// Submit comprehensive costing (adds one fully-costed item, to a new or existing quotation)
 router.post('/', authenticateToken, async (req, res) => {
   console.log('[COSTING] POST /api/costing - Request received');
 
   const {
     client,
+    client_id,
+    quotation_id,
     job,
     materials = [],
     plates = [],
@@ -271,13 +62,16 @@ router.post('/', authenticateToken, async (req, res) => {
     additional_costs
   } = req.body;
 
-  console.log('[COSTING] Parsed data - client:', client, 'job:', job);
+  console.log('[COSTING] Parsed data - client:', client, 'job:', job, 'quotation_id:', quotation_id);
   console.log('[COSTING] Arrays - materials:', materials.length, 'machines:', machines.length, 'processes:', processes.length);
 
   // Validate required fields
-  if (!client || !client.name || !client.margin_tier_id || !job || !job.name || !job.quantity) {
+  if (!job || !job.name || !job.quantity) {
+    return res.status(400).json({ error: 'Job name and quantity are required' });
+  }
+  if (!quotation_id && (!client || !client.name || !client.margin_tier_id)) {
     console.log('[COSTING] Validation failed:', { client, job });
-    return res.status(400).json({ error: 'Client name, margin tier, job name, and quantity are required' });
+    return res.status(400).json({ error: 'Client name and margin tier are required' });
   }
 
   const clientConn = await pool.connect();
@@ -285,29 +79,11 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     await clientConn.query('BEGIN');
 
-    // 1. Create or find client
-    let clientResult;
-    const existingClient = await clientConn.query(
-      'SELECT id FROM clients WHERE name = $1 AND email = $2',
-      [client.name, client.email || '']
-    );
+    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client });
 
-    if (existingClient.rows.length > 0) {
-      clientResult = existingClient;
-      console.log('[COSTING] Using existing client:', clientResult.rows[0]);
-    } else {
-      clientResult = await clientConn.query(
-        'INSERT INTO clients (name, type, address, contact, email, margin_tier_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [client.name, client.type, client.address, client.contact, client.email, client.margin_tier_id]
-      );
-      console.log('[COSTING] Created new client:', clientResult.rows[0]);
-    }
-
-    const clientId = clientResult.rows[0].id;
-
-    // 2. Create job
-    const jobColumns = ['client_id', 'name', 'description', 'quantity'];
-    const jobValues = [clientId, job.name, job.description, job.quantity];
+    // 2. Create job (line item)
+    const jobColumns = ['client_id', 'quotation_id', 'name', 'description', 'quantity'];
+    const jobValues = [clientId, quotationId, job.name, job.description, job.quantity];
     const optionalJobColumns = ['page_size', 'pages_per_copy', 'stock_sheets', 'plates_a1', 'plates_a2', 'plates_a3'];
 
     const availableJobColumns = (await clientConn.query(
@@ -328,7 +104,7 @@ router.post('/', authenticateToken, async (req, res) => {
       jobValues
     );
     const jobId = jobResult.rows[0].id;
-    console.log('[COSTING] Created job:', jobId);
+    console.log('[COSTING] Created job:', jobId, 'in quotation:', quotationId);
 
     // 3. Insert materials
     for (const material of materials) {
@@ -437,7 +213,7 @@ router.post('/', authenticateToken, async (req, res) => {
     await clientConn.query('COMMIT');
     console.log('[COSTING] Transaction committed successfully');
 
-    res.json({ job_id: jobId, message: 'Costing saved successfully' });
+    res.json({ job_id: jobId, quotation_id: quotationId, message: 'Costing saved successfully' });
 
   } catch (err) {
     await clientConn.query('ROLLBACK');
@@ -449,15 +225,80 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Generate quotation PDF
+// Create a fixed-price job (quick quotation line item, skips the costing wizard)
+router.post('/quick', authenticateToken, async (req, res) => {
+  const { client_id, client, quotation_id, job } = req.body;
+
+  if (!job || !job.name || !job.quantity || job.fixed_price === undefined || job.fixed_price === null || job.fixed_price === '') {
+    return res.status(400).json({ error: 'Job name, quantity, and unit price are required' });
+  }
+  if (!quotation_id && !client_id && (!client || !client.name || !client.margin_tier_id)) {
+    return res.status(400).json({ error: 'An existing quotation or client, or a new client with name and margin tier, is required' });
+  }
+
+  const clientConn = await pool.connect();
+
+  try {
+    await clientConn.query('BEGIN');
+
+    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client });
+
+    const jobResult = await clientConn.query(
+      `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price)
+       VALUES ($1, $2, $3, $4, $5, 'fixed', $6) RETURNING id`,
+      [clientId, quotationId, job.name, job.description || '', job.quantity, toNumber(job.fixed_price)]
+    );
+
+    await clientConn.query('COMMIT');
+    res.json({ job_id: jobResult.rows[0].id, quotation_id: quotationId, message: 'Fixed-price job saved successfully' });
+  } catch (err) {
+    await clientConn.query('ROLLBACK');
+    console.error('[COSTING] Quick job creation failed:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    clientConn.release();
+  }
+});
+
+// Update a fixed-price job
+router.put('/quick/:jobId', authenticateToken, async (req, res) => {
+  const { jobId } = req.params;
+  const { job } = req.body;
+
+  if (!job || !job.name || !job.quantity || job.fixed_price === undefined || job.fixed_price === null || job.fixed_price === '') {
+    return res.status(400).json({ error: 'Job name, quantity, and unit price are required' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE jobs SET name = $1, description = $2, quantity = $3, fixed_price = $4, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5 AND pricing_mode = 'fixed' RETURNING id`,
+      [job.name, job.description || '', job.quantity, toNumber(job.fixed_price), jobId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Fixed-price job not found' });
+    }
+    res.json({ job_id: result.rows[0].id, message: 'Fixed-price job updated successfully' });
+  } catch (err) {
+    console.error('[COSTING] Quick job update failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate the PDF for the quotation a job belongs to (may include other items too)
 router.get('/quotation/:jobId', authenticateToken, async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    const data = await getQuotationData(jobId);
-
-    if (!data) {
+    const jobResult = await pool.query('SELECT quotation_id FROM jobs WHERE id = $1', [jobId]);
+    if (jobResult.rows.length === 0) {
       return res.status(404).json({ error: 'Job not found' });
+    }
+    const quotationId = jobResult.rows[0].quotation_id;
+
+    const data = await getQuotationItemsData(pool, quotationId);
+    if (!data) {
+      return res.status(404).json({ error: 'Quotation not found' });
     }
 
     const doc = new PDFDocument({
@@ -466,9 +307,9 @@ router.get('/quotation/:jobId', authenticateToken, async (req, res) => {
     });
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=quotation_${jobId}.pdf`);
+    res.setHeader('Content-Disposition', `attachment; filename=quotation_${quotationId}.pdf`);
     doc.pipe(res);
-    drawQuotationPdf(doc, jobId, data);
+    drawQuotationPdf(doc, quotationId, data);
     doc.end();
 
   } catch (err) {

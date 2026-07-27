@@ -43,10 +43,20 @@ CREATE TABLE clients (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Jobs table (linked to clients)
+-- Quotations table (a quotation bundles one or more jobs/line items for a client)
+CREATE TABLE quotations (
+  id SERIAL PRIMARY KEY,
+  client_id INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  status VARCHAR(20) DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Jobs table (a job is one priced line item within a quotation)
 CREATE TABLE jobs (
   id SERIAL PRIMARY KEY,
   client_id INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  quotation_id INT NOT NULL REFERENCES quotations(id) ON DELETE CASCADE,
   name VARCHAR(100) NOT NULL,
   description TEXT,
   quantity INT,
@@ -59,6 +69,8 @@ CREATE TABLE jobs (
   status VARCHAR(20) DEFAULT 'pending',
   subtotal_cost DECIMAL(12,2) DEFAULT 0,
   total_cost DECIMAL(12,2) DEFAULT 0,
+  pricing_mode VARCHAR(20) NOT NULL DEFAULT 'calculated',
+  fixed_price DECIMAL(14,2),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

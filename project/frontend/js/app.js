@@ -99,6 +99,35 @@ const machinesList = document.getElementById('machines-list');
 // const addProcessBtn = document.getElementById('add-process');
 // const processesList = document.getElementById('processes-list');
 
+// Quick fixed-price job modal
+const quickJobBtns = document.querySelectorAll('.quick-job-btn');
+const quickJobModal = document.getElementById('quick-job-modal');
+const quickJobForm = document.getElementById('quick-job-form');
+const quickJobTitle = document.getElementById('quick-job-title');
+const quickJobIdInput = document.getElementById('quick-job-id');
+const quickJobAttachQuotationIdInput = document.getElementById('quick-job-attach-quotation-id');
+const quickJobClientModeRow = document.getElementById('quick-job-client-mode-row');
+const quickJobModeExisting = document.getElementById('quick-job-mode-existing');
+const quickJobModeNew = document.getElementById('quick-job-mode-new');
+const quickJobExistingClientRow = document.getElementById('quick-job-existing-client-row');
+const quickJobExistingClient = document.getElementById('quick-job-existing-client');
+const quickJobNewClientRow = document.getElementById('quick-job-new-client-row');
+const quickJobNewClientContactRow = document.getElementById('quick-job-new-client-contact-row');
+const quickJobNewClientName = document.getElementById('quick-job-new-client-name');
+const quickJobNewClientType = document.getElementById('quick-job-new-client-type');
+const quickJobNewClientContact = document.getElementById('quick-job-new-client-contact');
+const quickJobName = document.getElementById('quick-job-name');
+const quickJobDescription = document.getElementById('quick-job-description');
+const quickJobQuantity = document.getElementById('quick-job-quantity');
+const quickJobPrice = document.getElementById('quick-job-price');
+
+function applyQuickJobClientMode() {
+  const useNew = quickJobModeNew.checked;
+  quickJobExistingClientRow.style.display = useNew ? 'none' : '';
+  quickJobNewClientRow.style.display = useNew ? '' : 'none';
+  quickJobNewClientContactRow.style.display = useNew ? '' : 'none';
+}
+
 // Calculator modal
 const calculatorModal = document.getElementById('calculator-modal');
 const calcBaseRate = document.getElementById('calc-base-rate');
@@ -157,6 +186,8 @@ let materials = [];
 let machines = [];
 let bindings = [];
 let specialProcesses = [];
+let jobsById = {};
+let pendingQuotationId = null;
 const sectionNames = {
   'client-job': 'Client & Job Information',
   'prepress': 'Pre-press',
@@ -764,20 +795,25 @@ async function displayJobSummary() {
       return;
     }
 
+    jobs.forEach(job => { jobsById[job.id] = job; });
+
     jobs.slice(0, 5).forEach(job => {
       const jobCard = document.createElement('div');
       jobCard.className = 'client-card';
       jobCard.innerHTML = `
-        <h3>${job.name}</h3>
+        <h3>${job.name}${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}</h3>
         <div class="client-info">
           <div><strong>Client:</strong> ${job.client_name || 'N/A'}</div>
           <div><strong>Status:</strong> ${job.status || 'pending'}</div>
           <div><strong>Quantity:</strong> ${job.quantity}</div>
+          <div><strong>Quotation:</strong> #${job.quotation_id}</div>
           <div><strong>Created:</strong> ${new Date(job.created_at).toLocaleDateString()}</div>
         </div>
         <div class="card-actions">
           <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
           <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
+          <button type="button" class="add-fixed-item-btn" data-quotation-id="${job.quotation_id}">+ Fixed Item</button>
+          <button type="button" class="add-calc-item-btn" data-quotation-id="${job.quotation_id}" data-client-id="${job.client_id}">+ Costed Item</button>
         </div>
       `;
       jobSummaryContainer.appendChild(jobCard);
@@ -877,6 +913,73 @@ function setMarginTierFromClientType(clientType) {
     marginTierDisplay.style.display = 'none';
     updateCostSummary();
   }
+}
+
+function resolveMarginTierIdFromType(clientType) {
+  if (!clientType || !marginTiers || marginTiers.length === 0) return null;
+  const normalizedType = clientType.toString().trim().toLowerCase();
+  const matchingTier = marginTiers.find(tier => tier.tier_name.toString().trim().toLowerCase() === normalizedType);
+  return matchingTier ? matchingTier.id : null;
+}
+
+function populateQuickJobClients(clients) {
+  quickJobExistingClient.innerHTML = '<option value="">Select an existing client...</option>';
+  clients.forEach(client => {
+    const option = document.createElement('option');
+    option.value = client.id;
+    option.textContent = `${client.name} (${client.type || 'N/A'})`;
+    quickJobExistingClient.appendChild(option);
+  });
+}
+
+// job: pass to edit an existing fixed-price item.
+// attachQuotationId: pass to add a new fixed-price item straight to an existing quotation (client is fixed).
+async function openQuickJobModal(job, attachQuotationId) {
+  quickJobForm.reset();
+  quickJobModeExisting.checked = true;
+  applyQuickJobClientMode();
+  quickJobAttachQuotationIdInput.value = '';
+
+  if (job) {
+    quickJobTitle.textContent = 'Edit Fixed-Price Job';
+    quickJobIdInput.value = job.id;
+    quickJobClientModeRow.style.display = 'none';
+    quickJobExistingClientRow.style.display = 'none';
+    quickJobNewClientRow.style.display = 'none';
+    quickJobNewClientContactRow.style.display = 'none';
+    quickJobName.value = job.name || '';
+    quickJobDescription.value = job.description || '';
+    quickJobQuantity.value = job.quantity || '';
+    quickJobPrice.value = job.fixed_price || '';
+  } else if (attachQuotationId) {
+    quickJobTitle.textContent = `Add Fixed-Price Item to Quotation #${attachQuotationId}`;
+    quickJobIdInput.value = '';
+    quickJobAttachQuotationIdInput.value = attachQuotationId;
+    quickJobClientModeRow.style.display = 'none';
+    quickJobExistingClientRow.style.display = 'none';
+    quickJobNewClientRow.style.display = 'none';
+    quickJobNewClientContactRow.style.display = 'none';
+  } else {
+    quickJobTitle.textContent = 'Quick Fixed-Price Job';
+    quickJobIdInput.value = '';
+    quickJobClientModeRow.style.display = '';
+    applyQuickJobClientMode();
+    if (!marginTiers || marginTiers.length === 0) {
+      try {
+        marginTiers = await apiRequest('/clients/margin-tiers');
+      } catch (error) {
+        // Error already shown by apiRequest
+      }
+    }
+    try {
+      const clients = await apiRequest('/clients');
+      populateQuickJobClients(clients);
+    } catch (error) {
+      // Error already shown by apiRequest
+    }
+  }
+
+  quickJobModal.style.display = 'block';
 }
 
 function clearClientFields() {
@@ -1109,6 +1212,7 @@ loadExistingJobBtn.addEventListener('click', () => {
 });
 
 newJobBtn.addEventListener('click', () => {
+  pendingQuotationId = null;
   clearDraftData();
   comprehensiveForm.reset();
   // Reset dynamic sections
@@ -1127,6 +1231,7 @@ cancelCostingBtn.addEventListener('click', () => {
   if (!confirm('Discard changes and close the cost sheet?')) {
     return;
   }
+  pendingQuotationId = null;
   clearDraftData();
   showSection(homeSection);
   setActiveNav(navHomeBtn);
@@ -1171,19 +1276,138 @@ if (jobPagesPerCopy) {
   jobPagesPerCopy.addEventListener('input', updatePlateSummary);
 }
 
-jobSummaryContainer.addEventListener('click', (e) => {
+function editJob(jobId) {
+  const job = jobsById[jobId];
+  if (job && job.pricing_mode === 'fixed') {
+    openQuickJobModal(job);
+  } else {
+    loadJobForEdit(jobId);
+  }
+}
+
+async function addCalculatedItemToQuotation(quotationId, clientId) {
+  pendingQuotationId = parseInt(quotationId, 10);
+  clearDraftData();
+  comprehensiveForm.reset();
+  resetMaterials();
+  resetMachines();
+  resetProcesses();
+  currentWizardStep = 0;
+  showSection(costingSection);
+  setActiveNav(navCostingBtn);
+
+  if (!materials || materials.length === 0) {
+    await loadCostSheetData();
+  }
+
+  existingClientSelect.value = clientId;
+  loadExistingClient(clientId);
+  showWizardSection(0);
+  updateCostSummary();
+  showStatus(`Adding a fully-costed item to Quotation #${quotationId}`);
+}
+
+function handleJobCardClick(e) {
   if (e.target.classList.contains('load-job-btn')) {
-    loadJobForEdit(e.target.dataset.jobId);
+    editJob(e.target.dataset.jobId);
   } else if (e.target.classList.contains('print-quotation-btn')) {
     generateQuotation(e.target.dataset.jobId);
+  } else if (e.target.classList.contains('add-fixed-item-btn')) {
+    openQuickJobModal(null, e.target.dataset.quotationId);
+  } else if (e.target.classList.contains('add-calc-item-btn')) {
+    addCalculatedItemToQuotation(e.target.dataset.quotationId, e.target.dataset.clientId);
+  }
+}
+
+jobSummaryContainer.addEventListener('click', handleJobCardClick);
+jobsContainer.addEventListener('click', handleJobCardClick);
+
+quickJobBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    openQuickJobModal();
+  });
+});
+
+quickJobModeExisting.addEventListener('change', applyQuickJobClientMode);
+quickJobModeNew.addEventListener('change', applyQuickJobClientMode);
+
+document.getElementById('quick-job-close').addEventListener('click', () => {
+  quickJobModal.style.display = 'none';
+});
+
+window.addEventListener('click', (e) => {
+  if (e.target === quickJobModal) {
+    quickJobModal.style.display = 'none';
   }
 });
 
-jobsContainer.addEventListener('click', (e) => {
-  if (e.target.classList.contains('load-job-btn')) {
-    loadJobForEdit(e.target.dataset.jobId);
-  } else if (e.target.classList.contains('print-quotation-btn')) {
-    generateQuotation(e.target.dataset.jobId);
+quickJobForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const jobId = quickJobIdInput.value;
+  const jobPayload = {
+    name: quickJobName.value,
+    description: quickJobDescription.value,
+    quantity: parseInt(quickJobQuantity.value, 10),
+    fixed_price: parseFloat(quickJobPrice.value)
+  };
+
+  try {
+    if (jobId) {
+      await apiRequest(`/costing/quick/${jobId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ job: jobPayload })
+      });
+      showStatus('Fixed-price job updated successfully');
+    } else if (quickJobAttachQuotationIdInput.value) {
+      await apiRequest('/costing/quick', {
+        method: 'POST',
+        body: JSON.stringify({ job: jobPayload, quotation_id: parseInt(quickJobAttachQuotationIdInput.value, 10) })
+      });
+      showStatus('Item added to quotation successfully');
+    } else {
+      const payload = { job: jobPayload };
+
+      if (quickJobModeNew.checked) {
+        if (!quickJobNewClientName.value.trim()) {
+          showStatus('Enter a name for the new client', 'error');
+          return;
+        }
+        if (!quickJobNewClientType.value) {
+          showStatus('Select a client type for the new client', 'error');
+          return;
+        }
+        const marginTierId = resolveMarginTierIdFromType(quickJobNewClientType.value);
+        if (!marginTierId) {
+          showStatus('Could not determine a margin tier for that client type', 'error');
+          return;
+        }
+        payload.client = {
+          name: quickJobNewClientName.value,
+          type: quickJobNewClientType.value,
+          contact: quickJobNewClientContact.value,
+          margin_tier_id: marginTierId
+        };
+      } else {
+        if (!quickJobExistingClient.value) {
+          showStatus('Select an existing client', 'error');
+          return;
+        }
+        payload.client_id = parseInt(quickJobExistingClient.value, 10);
+      }
+
+      await apiRequest('/costing/quick', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      showStatus('Fixed-price job saved successfully');
+    }
+
+    quickJobModal.style.display = 'none';
+    const jobs = await apiRequest('/jobs');
+    displayJobs(jobs);
+  } catch (error) {
+    // Error already shown by apiRequest
   }
 });
 
@@ -1575,12 +1799,19 @@ if (saveJobBtn) {
         return;
       }
 
+      if (pendingQuotationId) {
+        costingData.quotation_id = pendingQuotationId;
+      }
+
       const result = await apiRequest('/costing', {
         method: 'POST',
         body: JSON.stringify(costingData)
       });
 
-      showStatus(`Costing saved successfully! Job ID: ${result.job_id}. You can generate a quotation from the Jobs list.`);
+      showStatus(pendingQuotationId
+        ? `Item added to Quotation #${result.quotation_id} successfully.`
+        : `Costing saved successfully! Job ID: ${result.job_id}. You can generate a quotation from the Jobs list.`);
+      pendingQuotationId = null;
       clearDraftData();
 
       showSection(homeSection);
@@ -1641,22 +1872,28 @@ function displayJobs(jobs) {
   }
 
   jobs.forEach(job => {
+    jobsById[job.id] = job;
+
     const jobCard = document.createElement('div');
     jobCard.className = 'client-card'; // Reuse the same styling
 
     jobCard.innerHTML = `
-      <h3>${job.name}</h3>
+      <h3>${job.name}${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}</h3>
       <div class="client-info">
         <div><strong>Client:</strong> ${job.client_name}</div>
         <div><strong>Margin Tier:</strong> ${job.tier_name} (${job.margin_percentage}%)</div>
         <div><strong>Quantity:</strong> ${job.quantity}</div>
         <div><strong>Status:</strong> ${job.status}</div>
         <div><strong>Description:</strong> ${job.description || 'N/A'}</div>
+        ${job.pricing_mode === 'fixed' ? `<div><strong>Unit Price:</strong> UGX ${Number(job.fixed_price).toLocaleString()}</div>` : ''}
+        <div><strong>Quotation:</strong> #${job.quotation_id}</div>
         <div><strong>Created:</strong> ${new Date(job.created_at).toLocaleDateString()}</div>
       </div>
       <div class="card-actions">
         <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
         <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
+        <button type="button" class="add-fixed-item-btn" data-quotation-id="${job.quotation_id}">+ Fixed Item</button>
+        <button type="button" class="add-calc-item-btn" data-quotation-id="${job.quotation_id}" data-client-id="${job.client_id}">+ Costed Item</button>
       </div>
     `;
 

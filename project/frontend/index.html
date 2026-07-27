@@ -25,6 +25,7 @@
       <div class="page-card home-card">
         <div class="section-header">
           <h2>Home</h2>
+          <button id="quick-job-btn-home" type="button" class="secondary-button quick-job-btn">+ Quick Fixed-Price Job</button>
         </div>
         <p>Quick access to recent jobs and system status.</p>
         <div id="job-summary-container"></div>
@@ -47,6 +48,81 @@
       </div>
     </section>
 
+    <!-- Quick Fixed-Price Job modal -->
+    <div id="quick-job-modal" class="modal">
+      <div class="modal-content">
+        <span class="close" id="quick-job-close">&times;</span>
+        <h3 id="quick-job-title">Quick Fixed-Price Job</h3>
+        <form id="quick-job-form">
+          <input type="hidden" id="quick-job-id" value="">
+          <input type="hidden" id="quick-job-attach-quotation-id" value="">
+          <div class="form-row" id="quick-job-client-mode-row">
+            <div class="form-group">
+              <label><input type="radio" name="quick-job-client-mode" id="quick-job-mode-existing" value="existing" checked> Use existing client</label>
+            </div>
+            <div class="form-group">
+              <label><input type="radio" name="quick-job-client-mode" id="quick-job-mode-new" value="new"> Add new client</label>
+            </div>
+          </div>
+          <div class="form-row" id="quick-job-existing-client-row">
+            <div class="form-group">
+              <label for="quick-job-existing-client">Existing Client:</label>
+              <select id="quick-job-existing-client">
+                <option value="">Select an existing client...</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" id="quick-job-new-client-row" style="display:none;">
+            <div class="form-group">
+              <label for="quick-job-new-client-name">New Client Name:</label>
+              <input type="text" id="quick-job-new-client-name">
+            </div>
+            <div class="form-group">
+              <label for="quick-job-new-client-type">Client Type:</label>
+              <select id="quick-job-new-client-type">
+                <option value="">Select client type...</option>
+                <option value="Government / Parastatal">Government / Parastatal</option>
+                <option value="NGO / Dev. Partner">NGO / Dev. Partner</option>
+                <option value="Commercial / Private">Commercial / Private</option>
+                <option value="Internal / UPPC">Internal / UPPC</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row single" id="quick-job-new-client-contact-row" style="display:none;">
+            <div class="form-group">
+              <label for="quick-job-new-client-contact">Contact:</label>
+              <input type="text" id="quick-job-new-client-contact">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="quick-job-name">Item / Job Name:</label>
+              <input type="text" id="quick-job-name" required>
+            </div>
+            <div class="form-group">
+              <label for="quick-job-quantity">Quantity:</label>
+              <input type="number" id="quick-job-quantity" min="1" required>
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="quick-job-description">Description:</label>
+              <input type="text" id="quick-job-description">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="quick-job-price">Unit Price (UGX):</label>
+              <input type="number" id="quick-job-price" min="0" step="0.01" required>
+            </div>
+          </div>
+          <div class="modal-buttons">
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Cost Sheet -->
     <section id="costing-section" style="display: none;">
       <div class="page-card">
@@ -55,6 +131,7 @@
           <div style="display: flex; gap: 10px;">
             <button id="new-job" type="button" class="secondary-button">New Job</button>
             <button id="load-existing-job" type="button" class="secondary-button">Load Existing Job</button>
+            <button id="quick-job-btn-costing" type="button" class="secondary-button quick-job-btn">+ Quick Fixed-Price Job</button>
           </div>
         </div>
         <div id="costing-wizard">
