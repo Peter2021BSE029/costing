@@ -188,6 +188,7 @@ let bindings = [];
 let specialProcesses = [];
 let jobsById = {};
 let pendingQuotationId = null;
+let editingJobId = null;
 const sectionNames = {
   'client-job': 'Client & Job Information',
   'prepress': 'Pre-press',
@@ -852,24 +853,26 @@ async function loadCostSheetData() {
 async function loadJobForEdit(jobId) {
   try {
     pendingQuotationId = null;
+    editingJobId = jobId;
+    if (saveJobBtn) saveJobBtn.textContent = 'Update Job';
     const job = await apiRequest(`/jobs/${jobId}`);
     await loadCostSheetData();
     showSection(costingSection);
     setActiveNav(navCostingBtn);
-    
+
     // Populate all sections from job data
     populateCostSheetFromJob(job);
-    
+
     // Save all sections to draft
     wizardSections.forEach(section => {
       const data = collectSectionData(section);
       saveSectionData(section, data);
     });
-    
+
     // Show first section
     currentWizardStep = 0;
     showWizardSection(currentWizardStep);
-    
+
   } catch (error) {
     console.error('Error loading job:', error);
   }
@@ -1227,6 +1230,8 @@ loadExistingJobBtn.addEventListener('click', () => {
 
 newJobBtn.addEventListener('click', () => {
   pendingQuotationId = null;
+  editingJobId = null;
+  if (saveJobBtn) saveJobBtn.textContent = 'Save Job';
   clearDraftData();
   comprehensiveForm.reset();
   // Reset dynamic sections
@@ -1246,6 +1251,8 @@ cancelCostingBtn.addEventListener('click', () => {
     return;
   }
   pendingQuotationId = null;
+  editingJobId = null;
+  if (saveJobBtn) saveJobBtn.textContent = 'Save Job';
   clearDraftData();
   showSection(homeSection);
   setActiveNav(navHomeBtn);
@@ -1301,6 +1308,8 @@ function editJob(jobId) {
 
 async function addCalculatedItemToQuotation(quotationId, clientId) {
   pendingQuotationId = parseInt(quotationId, 10);
+  editingJobId = null;
+  if (saveJobBtn) saveJobBtn.textContent = 'Save Job';
   clearDraftData();
   comprehensiveForm.reset();
   resetMaterials();
@@ -1813,19 +1822,34 @@ if (saveJobBtn) {
         return;
       }
 
-      if (pendingQuotationId) {
-        costingData.quotation_id = pendingQuotationId;
+      let result;
+      let statusMessage;
+
+      if (editingJobId) {
+        result = await apiRequest(`/costing/${editingJobId}`, {
+          method: 'PUT',
+          body: JSON.stringify(costingData)
+        });
+        statusMessage = `Job updated successfully.`;
+      } else {
+        if (pendingQuotationId) {
+          costingData.quotation_id = pendingQuotationId;
+        }
+
+        result = await apiRequest('/costing', {
+          method: 'POST',
+          body: JSON.stringify(costingData)
+        });
+
+        statusMessage = pendingQuotationId
+          ? `Item added to Quotation #${result.quotation_id} successfully.`
+          : `Costing saved successfully! Job ID: ${result.job_id}. You can generate a quotation from the Jobs list.`;
       }
 
-      const result = await apiRequest('/costing', {
-        method: 'POST',
-        body: JSON.stringify(costingData)
-      });
-
-      showStatus(pendingQuotationId
-        ? `Item added to Quotation #${result.quotation_id} successfully.`
-        : `Costing saved successfully! Job ID: ${result.job_id}. You can generate a quotation from the Jobs list.`);
+      showStatus(statusMessage);
       pendingQuotationId = null;
+      editingJobId = null;
+      if (saveJobBtn) saveJobBtn.textContent = 'Save Job';
       clearDraftData();
 
       showSection(homeSection);

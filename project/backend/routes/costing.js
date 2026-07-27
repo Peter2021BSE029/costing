@@ -19,23 +19,7 @@ async function resolveQuotationAndClient(conn, { quotation_id, client_id, client
     return { quotationId: quotationResult.rows[0].id, clientId: quotationResult.rows[0].client_id };
   }
 
-  let clientId = client_id ? parseInt(client_id, 10) : null;
-
-  if (!clientId) {
-    const existingClient = await conn.query(
-      'SELECT id FROM clients WHERE name = $1 AND email = $2',
-      [client.name, client.email || '']
-    );
-    if (existingClient.rows.length > 0) {
-      clientId = existingClient.rows[0].id;
-    } else {
-      const inserted = await conn.query(
-        'INSERT INTO clients (name, type, address, contact, email, margin_tier_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-        [client.name, client.type, client.address, client.contact, client.email, client.margin_tier_id]
-      );
-      clientId = inserted.rows[0].id;
-    }
-  }
+  const clientId = await resolveClient(conn, { client_id, client });
 
   const newQuotation = await conn.query(
     'INSERT INTO quotations (client_id) VALUES ($1) RETURNING id',
@@ -43,6 +27,137 @@ async function resolveQuotationAndClient(conn, { quotation_id, client_id, client
   );
 
   return { quotationId: newQuotation.rows[0].id, clientId };
+}
+
+// Inserts a job's cost-breakdown rows (materials, plates, machines, processes, bindings,
+// additional costs). Shared by job creation and job update (which deletes the old rows first).
+async function insertJobLineItems(conn, jobId, { materials = [], plates = [], machines = [], processes = [], binding, additional_costs }) {
+  // Materials
+  for (const material of materials) {
+    await conn.query(
+      'INSERT INTO job_materials (job_id, material_id, quantity, unit_cost) VALUES ($1, $2, $3, $4)',
+      [jobId, material.material_id, material.quantity, material.unit_cost]
+    );
+  }
+
+  // Plates as materials
+  for (const plate of plates) {
+    const plateMaterial = await conn.query(
+      'SELECT id FROM materials WHERE name LIKE $1',
+      [`%${plate.size}%`]
+    );
+    if (plateMaterial.rows.length > 0) {
+      await conn.query(
+        'INSERT INTO job_materials (job_id, material_id, quantity, unit_cost) VALUES ($1, $2, $3, $4)',
+        [jobId, plateMaterial.rows[0].id, plate.quantity, plate.unit_cost]
+      );
+    } else {
+      console.warn('[COSTING] Plate material not found for size:', plate.size);
+    }
+  }
+
+  // Machines
+  for (const machine of machines) {
+    await conn.query(
+      'INSERT INTO job_machines (job_id, machine_id, impressions, setup_cost, cost_per_impression, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
+      [
+        jobId,
+        machine.machine_id,
+        machine.impressions,
+        toNumber(machine.setup_cost),
+        toNumber(machine.cost_per_impression),
+        (toNumber(machine.impressions) * toNumber(machine.cost_per_impression)) + toNumber(machine.setup_cost)
+      ]
+    );
+  }
+
+  // Special processes
+  for (const process of processes) {
+    await conn.query(
+      'INSERT INTO job_special_processes (job_id, special_process_id, quantity, cost_per_unit) VALUES ($1, $2, $3, $4)',
+      [jobId, process.process_id, process.quantity, process.rate_per_unit]
+    );
+  }
+
+  // Bindings
+  if (binding && binding.bindings && binding.bindings.length > 0) {
+    for (const bind of binding.bindings) {
+      const bindingCost = toNumber(bind.cost);
+      await conn.query(
+        'INSERT INTO job_bindings (job_id, binding_id, copies, cost, cost_per_copy, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
+        [jobId, bind.binding_id, 1, bindingCost, bindingCost, bindingCost]
+      );
+    }
+  }
+
+  // Additional costs
+  if (additional_costs) {
+    const additionalColumns = ['job_id', 'design_pages', 'design_rate', 'typesetting_pages', 'typesetting_rate', 'wastage_percent', 'wastage_cost', 'subcontract_description', 'subcontract_cost', 'storage_percent', 'storage_cost', 'transport_percent', 'transport_cost'];
+    const additionalValues = [
+      jobId,
+      additional_costs.design_pages || 0,
+      additional_costs.design_rate || 0,
+      additional_costs.typesetting_pages || 0,
+      additional_costs.typesetting_rate || 0,
+      additional_costs.wastage_percent || 5,
+      additional_costs.wastage_cost || 0,
+      additional_costs.subcontract_description || '',
+      additional_costs.subcontract_cost || 0,
+      additional_costs.storage_percent || 5,
+      additional_costs.storage_cost || 0,
+      additional_costs.transport_percent || 10,
+      additional_costs.transport_cost || 0
+    ];
+    const optionalAdditionalColumns = ['ctp_cost', 'commission_cost', 'overhead_percent', 'overhead_cost', 'special_processes_total'];
+
+    const availableAdditionalColumns = (await conn.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'job_additional_costs' AND column_name = ANY($1::text[])`,
+      [optionalAdditionalColumns]
+    )).rows.map(row => row.column_name);
+
+    for (const column of optionalAdditionalColumns) {
+      if (availableAdditionalColumns.includes(column)) {
+        additionalColumns.push(column);
+        additionalValues.push(additional_costs[column] || 0);
+      }
+    }
+
+    const additionalPlaceholders = additionalColumns.map((_, index) => `$${index + 1}`).join(', ');
+    await conn.query(
+      `INSERT INTO job_additional_costs (${additionalColumns.join(', ')}) VALUES (${additionalPlaceholders})`,
+      additionalValues
+    );
+  }
+
+  return {
+    materialsCount: materials.length,
+    platesCount: plates.length,
+    machinesCount: machines.length,
+    processesCount: processes.length,
+    bindingsCount: binding && binding.bindings ? binding.bindings.length : 0
+  };
+}
+
+// Resolves (creates if needed) the client a job belongs to, from `client`/`client_id`.
+async function resolveClient(conn, { client_id, client }) {
+  let clientId = client_id ? parseInt(client_id, 10) : null;
+  if (clientId) {
+    return clientId;
+  }
+
+  const existingClient = await conn.query(
+    'SELECT id FROM clients WHERE name = $1 AND email = $2',
+    [client.name, client.email || '']
+  );
+  if (existingClient.rows.length > 0) {
+    return existingClient.rows[0].id;
+  }
+
+  const inserted = await conn.query(
+    'INSERT INTO clients (name, type, address, contact, email, margin_tier_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    [client.name, client.type, client.address, client.contact, client.email, client.margin_tier_id]
+  );
+  return inserted.rows[0].id;
 }
 
 // Submit comprehensive costing (adds one fully-costed item, to a new or existing quotation)
@@ -106,109 +221,8 @@ router.post('/', authenticateToken, async (req, res) => {
     const jobId = jobResult.rows[0].id;
     console.log('[COSTING] Created job:', jobId, 'in quotation:', quotationId);
 
-    // 3. Insert materials
-    for (const material of materials) {
-      await clientConn.query(
-        'INSERT INTO job_materials (job_id, material_id, quantity, unit_cost) VALUES ($1, $2, $3, $4)',
-        [jobId, material.material_id, material.quantity, material.unit_cost]
-      );
-    }
-    console.log('[COSTING] Inserted materials:', materials.length);
-
-    // 3a. Insert plates as materials
-    for (const plate of plates) {
-      // Find the plate material by name
-      const plateMaterial = await clientConn.query(
-        'SELECT id FROM materials WHERE name LIKE $1',
-        [`%${plate.size}%`]
-      );
-      if (plateMaterial.rows.length > 0) {
-        await clientConn.query(
-          'INSERT INTO job_materials (job_id, material_id, quantity, unit_cost) VALUES ($1, $2, $3, $4)',
-          [jobId, plateMaterial.rows[0].id, plate.quantity, plate.unit_cost]
-        );
-      } else {
-        console.warn('[COSTING] Plate material not found for size:', plate.size);
-      }
-    }
-    console.log('[COSTING] Inserted plates:', plates.length);
-
-    // 4. Insert machines
-    for (const machine of machines) {
-      await clientConn.query(
-        'INSERT INTO job_machines (job_id, machine_id, impressions, setup_cost, cost_per_impression, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
-        [
-          jobId,
-          machine.machine_id,
-          machine.impressions,
-          toNumber(machine.setup_cost),
-          toNumber(machine.cost_per_impression),
-          (toNumber(machine.impressions) * toNumber(machine.cost_per_impression)) + toNumber(machine.setup_cost)
-        ]
-      );
-    }
-    console.log('[COSTING] Inserted machines:', machines.length);
-
-    // 5. Insert special processes
-    for (const process of processes) {
-      await clientConn.query(
-        'INSERT INTO job_special_processes (job_id, special_process_id, quantity, cost_per_unit) VALUES ($1, $2, $3, $4)',
-        [jobId, process.process_id, process.quantity, process.rate_per_unit]
-      );
-    }
-    console.log('[COSTING] Inserted processes:', processes.length);
-
-    // 6. Insert bindings if provided
-    if (binding && binding.bindings && binding.bindings.length > 0) {
-      for (const bind of binding.bindings) {
-        const bindingCost = toNumber(bind.cost);
-        await clientConn.query(
-          'INSERT INTO job_bindings (job_id, binding_id, copies, cost, cost_per_copy, subtotal) VALUES ($1, $2, $3, $4, $5, $6)',
-          [jobId, bind.binding_id, 1, bindingCost, bindingCost, bindingCost]
-        );
-      }
-      console.log('[COSTING] Inserted bindings:', binding.bindings.length);
-    }
-
-    // 7. Insert additional costs
-    if (additional_costs) {
-      const additionalColumns = ['job_id', 'design_pages', 'design_rate', 'typesetting_pages', 'typesetting_rate', 'wastage_percent', 'wastage_cost', 'subcontract_description', 'subcontract_cost', 'storage_percent', 'storage_cost', 'transport_percent', 'transport_cost'];
-      const additionalValues = [
-        jobId,
-        additional_costs.design_pages || 0,
-        additional_costs.design_rate || 0,
-        additional_costs.typesetting_pages || 0,
-        additional_costs.typesetting_rate || 0,
-        additional_costs.wastage_percent || 5,
-        additional_costs.wastage_cost || 0,
-        additional_costs.subcontract_description || '',
-        additional_costs.subcontract_cost || 0,
-        additional_costs.storage_percent || 5,
-        additional_costs.storage_cost || 0,
-        additional_costs.transport_percent || 10,
-        additional_costs.transport_cost || 0
-      ];
-      const optionalAdditionalColumns = ['ctp_cost', 'commission_cost', 'overhead_percent', 'overhead_cost', 'special_processes_total'];
-
-      const availableAdditionalColumns = (await clientConn.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_name = 'job_additional_costs' AND column_name = ANY($1::text[])`,
-        [optionalAdditionalColumns]
-      )).rows.map(row => row.column_name);
-
-      for (const column of optionalAdditionalColumns) {
-        if (availableAdditionalColumns.includes(column)) {
-          additionalColumns.push(column);
-          additionalValues.push(additional_costs[column] || 0);
-        }
-      }
-
-      const additionalPlaceholders = additionalColumns.map((_, index) => `$${index + 1}`).join(', ');
-      await clientConn.query(
-        `INSERT INTO job_additional_costs (${additionalColumns.join(', ')}) VALUES (${additionalPlaceholders})`,
-        additionalValues
-      );
-      console.log('[COSTING] Inserted additional costs');
-    }
+    const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
+    console.log('[COSTING] Inserted line items:', counts);
 
     await clientConn.query('COMMIT');
     console.log('[COSTING] Transaction committed successfully');
@@ -220,6 +234,89 @@ router.post('/', authenticateToken, async (req, res) => {
     console.error('[COSTING] Transaction failed:', err.message);
     console.error('[COSTING] Error details:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    clientConn.release();
+  }
+});
+
+// Update an existing fully-costed job in place: keeps its id and quotation,
+// replaces its cost breakdown (materials/machines/bindings/processes/additional costs).
+router.put('/:jobId', authenticateToken, async (req, res) => {
+  const { jobId } = req.params;
+  const {
+    client,
+    job,
+    materials = [],
+    plates = [],
+    machines = [],
+    processes = [],
+    binding,
+    additional_costs
+  } = req.body;
+
+  if (!job || !job.name || !job.quantity) {
+    return res.status(400).json({ error: 'Job name and quantity are required' });
+  }
+  if (!client || !client.name || !client.margin_tier_id) {
+    return res.status(400).json({ error: 'Client name and margin tier are required' });
+  }
+
+  const clientConn = await pool.connect();
+
+  try {
+    await clientConn.query('BEGIN');
+
+    const existingJob = await clientConn.query('SELECT id, pricing_mode, quotation_id FROM jobs WHERE id = $1', [jobId]);
+    if (existingJob.rows.length === 0) {
+      throw Object.assign(new Error('Job not found'), { status: 404 });
+    }
+    if (existingJob.rows[0].pricing_mode === 'fixed') {
+      throw Object.assign(new Error('This is a fixed-price job; update it from the Jobs list instead'), { status: 400 });
+    }
+
+    const clientId = await resolveClient(clientConn, { client, client_id: null });
+
+    const jobColumns = ['client_id', 'name', 'description', 'quantity'];
+    const jobValues = [clientId, job.name, job.description, job.quantity];
+    const optionalJobColumns = ['page_size', 'pages_per_copy', 'stock_sheets', 'plates_a1', 'plates_a2', 'plates_a3'];
+
+    const availableJobColumns = (await clientConn.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'jobs' AND column_name = ANY($1::text[])`,
+      [optionalJobColumns]
+    )).rows.map(row => row.column_name);
+
+    for (const column of optionalJobColumns) {
+      if (availableJobColumns.includes(column) && job[column] !== undefined) {
+        jobColumns.push(column);
+        jobValues.push(job[column]);
+      }
+    }
+
+    const setClause = jobColumns.map((column, index) => `${column} = $${index + 1}`).join(', ');
+    jobValues.push(jobId);
+    await clientConn.query(
+      `UPDATE jobs SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = $${jobValues.length}`,
+      jobValues
+    );
+
+    // Replace the cost breakdown: clear the old rows, then insert the submitted ones
+    await clientConn.query('DELETE FROM job_materials WHERE job_id = $1', [jobId]);
+    await clientConn.query('DELETE FROM job_machines WHERE job_id = $1', [jobId]);
+    await clientConn.query('DELETE FROM job_special_processes WHERE job_id = $1', [jobId]);
+    await clientConn.query('DELETE FROM job_bindings WHERE job_id = $1', [jobId]);
+    await clientConn.query('DELETE FROM job_additional_costs WHERE job_id = $1', [jobId]);
+
+    const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
+    console.log('[COSTING] Updated job', jobId, '- inserted line items:', counts);
+
+    await clientConn.query('COMMIT');
+
+    res.json({ job_id: Number(jobId), quotation_id: existingJob.rows[0].quotation_id, message: 'Costing updated successfully' });
+
+  } catch (err) {
+    await clientConn.query('ROLLBACK');
+    console.error('[COSTING] Update failed:', err.message);
+    res.status(err.status || 500).json({ error: err.message });
   } finally {
     clientConn.release();
   }
