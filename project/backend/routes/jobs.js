@@ -77,7 +77,7 @@ router.get('/:id', async (req, res) => {
     const job = jobResult.rows[0];
 
     const materialsResult = await pool.query(`
-      SELECT jm.*, m.name, m.unit_of_measure, m.unit_cost
+      SELECT jm.*, m.name, m.category, m.unit_of_measure, m.unit_cost
       FROM job_materials jm
       JOIN materials m ON jm.material_id = m.id
       WHERE jm.job_id = $1
@@ -106,7 +106,7 @@ router.get('/:id', async (req, res) => {
       JOIN bindings b ON jb.binding_id = b.id
       WHERE jb.job_id = $1
     `, [id]);
-    job.binding = bindingResult.rows[0] || null;
+    job.bindings = bindingResult.rows;
 
     const additionalCostsResult = await pool.query(`
       SELECT * FROM job_additional_costs WHERE job_id = $1

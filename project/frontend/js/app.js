@@ -851,6 +851,7 @@ async function loadCostSheetData() {
 
 async function loadJobForEdit(jobId) {
   try {
+    pendingQuotationId = null;
     const job = await apiRequest(`/jobs/${jobId}`);
     await loadCostSheetData();
     showSection(costingSection);
@@ -1077,8 +1078,14 @@ function populateCostSheetFromJob(job) {
   if (Array.isArray(job.materials) && job.materials.length > 0) {
     let materialIndex = 0;
     let paperIndex = 0;
-    job.materials.forEach((material, index) => {
-      if (isPaperMaterial(material)) {
+    job.materials.forEach((material) => {
+      if (isPlateMaterial(material)) {
+        const sizeMatch = (material.name || '').match(/A[123]/i);
+        const size = sizeMatch ? sizeMatch[0].toUpperCase() : null;
+        if (size === 'A1' && platesA1Cost) platesA1Cost.value = material.unit_cost;
+        if (size === 'A2' && platesA2Cost) platesA2Cost.value = material.unit_cost;
+        if (size === 'A3' && platesA3Cost) platesA3Cost.value = material.unit_cost;
+      } else if (isPaperMaterial(material)) {
         if (paperIndex > 0) addPaperItem();
         const row = paperMaterialsList.querySelectorAll('.paper-material-item')[paperIndex];
         if (row) {
@@ -1098,6 +1105,7 @@ function populateCostSheetFromJob(job) {
         materialIndex += 1;
       }
     });
+    updatePlatesCostSummary();
   }
 
   if (Array.isArray(job.machines) && job.machines.length > 0) {
@@ -1117,9 +1125,8 @@ function populateCostSheetFromJob(job) {
     // For now, we don't load individual processes since we use a total field
   }
 
-  if (job.binding) {
-    const jobBindings = Array.isArray(job.binding.bindings) ? job.binding.bindings : [job.binding];
-    jobBindings.forEach(bindingItem => {
+  if (Array.isArray(job.bindings) && job.bindings.length > 0) {
+    job.bindings.forEach(bindingItem => {
       const checkbox = document.querySelector(`input[name="binding-selected[]"][value="${bindingItem.binding_id}"]`);
       if (checkbox) {
         checkbox.checked = true;
@@ -1136,12 +1143,19 @@ function populateCostSheetFromJob(job) {
     document.getElementById('design-rate').value = job.additional_costs.design_rate || '';
     document.getElementById('typesetting-pages').value = job.additional_costs.typesetting_pages || '';
     document.getElementById('typesetting-rate').value = job.additional_costs.typesetting_rate || '';
+    document.getElementById('ctp-cost').value = job.additional_costs.ctp_cost || '';
     document.getElementById('wastage-percent').value = job.additional_costs.wastage_percent || '';
     document.getElementById('wastage-cost').value = job.additional_costs.wastage_cost || '';
     document.getElementById('subcontract-description').value = job.additional_costs.subcontract_description || '';
     document.getElementById('subcontract-cost').value = job.additional_costs.subcontract_cost || '';
+    document.getElementById('commission-cost').value = job.additional_costs.commission_cost || '';
+    document.getElementById('storage-percent').value = job.additional_costs.storage_percent || '';
     document.getElementById('storage-cost').value = job.additional_costs.storage_cost || '';
+    document.getElementById('transport-percent').value = job.additional_costs.transport_percent || '';
     document.getElementById('transport-cost').value = job.additional_costs.transport_cost || '';
+    document.getElementById('overhead-percent').value = job.additional_costs.overhead_percent || '';
+    document.getElementById('overhead-cost').value = job.additional_costs.overhead_cost || '';
+    document.getElementById('special-processes-total').value = job.additional_costs.special_processes_total || '';
   }
 
   updateDesignSubtotal();
@@ -1934,6 +1948,12 @@ function isPaperMaterial(material) {
   const excludedCategories = ['plate', 'plates', 'envelope', 'envelopes'];
   if (excludedCategories.some(excluded => category.includes(excluded))) return false;
   return ['paper', 'stock', 'card', 'cardstock', 'board'].some(type => category.includes(type));
+}
+
+function isPlateMaterial(material) {
+  const category = (material.category || '').toString().toLowerCase();
+  const name = (material.name || '').toString().toLowerCase();
+  return category.includes('plate') || name.includes('plate');
 }
 
 function populateMaterials() {
