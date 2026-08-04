@@ -322,12 +322,18 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
   }
 });
 
-// Create a fixed-price job (quick quotation line item, skips the costing wizard)
+// Create one or more fixed-price jobs at once (quick quotation line items,
+// skips the costing wizard), all attached to the same quotation.
 router.post('/quick', authenticateToken, async (req, res) => {
-  const { client_id, client, quotation_id, job } = req.body;
+  const { client_id, client, quotation_id, items } = req.body;
 
-  if (!job || !job.name || !job.quantity || job.fixed_price === undefined || job.fixed_price === null || job.fixed_price === '') {
-    return res.status(400).json({ error: 'Job name, quantity, and unit price are required' });
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'At least one item is required' });
+  }
+  for (const item of items) {
+    if (!item.name || !item.quantity || item.fixed_price === undefined || item.fixed_price === null || item.fixed_price === '') {
+      return res.status(400).json({ error: 'Each item requires a name, quantity, and unit price' });
+    }
   }
   if (!quotation_id && !client_id && (!client || !client.name || !client.margin_tier_id)) {
     return res.status(400).json({ error: 'An existing quotation or client, or a new client with name and margin tier, is required' });
@@ -340,14 +346,22 @@ router.post('/quick', authenticateToken, async (req, res) => {
 
     const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client });
 
-    const jobResult = await clientConn.query(
-      `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price)
-       VALUES ($1, $2, $3, $4, $5, 'fixed', $6) RETURNING id`,
-      [clientId, quotationId, job.name, job.description || '', job.quantity, toNumber(job.fixed_price)]
-    );
+    const jobIds = [];
+    for (const item of items) {
+      const jobResult = await clientConn.query(
+        `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price)
+         VALUES ($1, $2, $3, $4, $5, 'fixed', $6) RETURNING id`,
+        [clientId, quotationId, item.name, item.description || '', item.quantity, toNumber(item.fixed_price)]
+      );
+      jobIds.push(jobResult.rows[0].id);
+    }
 
     await clientConn.query('COMMIT');
-    res.json({ job_id: jobResult.rows[0].id, quotation_id: quotationId, message: 'Fixed-price job saved successfully' });
+    res.json({
+      job_ids: jobIds,
+      quotation_id: quotationId,
+      message: `${jobIds.length} item${jobIds.length === 1 ? '' : 's'} saved successfully`
+    });
   } catch (err) {
     await clientConn.query('ROLLBACK');
     console.error('[COSTING] Quick job creation failed:', err.message);

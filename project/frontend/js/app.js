@@ -53,6 +53,28 @@ if (!checkAuth()) {
   // Will redirect
 }
 
+// Silently renew the token while the tab stays open, so an active user
+// (e.g. mid-way through the costing wizard) never hits a hard session
+// expiry when they finally click Save.
+function refreshToken() {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  fetch(`${API_BASE}/auth/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+    .then(response => (response.ok ? response.json() : null))
+    .then(data => {
+      if (data && data.token) {
+        localStorage.setItem('token', data.token);
+      }
+    })
+    .catch(() => {});
+}
+
+setInterval(refreshToken, 20 * 60 * 1000);
+
 // DOM Elements
 const navHomeBtn = document.getElementById('nav-home');
 const navCostingBtn = document.getElementById('nav-costing');
@@ -116,10 +138,9 @@ const quickJobNewClientContactRow = document.getElementById('quick-job-new-clien
 const quickJobNewClientName = document.getElementById('quick-job-new-client-name');
 const quickJobNewClientType = document.getElementById('quick-job-new-client-type');
 const quickJobNewClientContact = document.getElementById('quick-job-new-client-contact');
-const quickJobName = document.getElementById('quick-job-name');
-const quickJobDescription = document.getElementById('quick-job-description');
-const quickJobQuantity = document.getElementById('quick-job-quantity');
-const quickJobPrice = document.getElementById('quick-job-price');
+const quickJobItemsList = document.getElementById('quick-job-items-list');
+const addQuickJobItemBtn = document.getElementById('add-quick-job-item');
+const quickJobItemsGrandTotal = document.getElementById('quick-job-items-grand-total');
 
 function applyQuickJobClientMode() {
   const useNew = quickJobModeNew.checked;
@@ -228,9 +249,14 @@ async function apiRequest(endpoint, options = {}) {
     if (!response.ok) {
       const body = await response.text();
       if (response.status === 401 || response.status === 403) {
+        // Flush whatever is on screen into the draft before bouncing to
+        // login, so an expired session never wipes in-progress wizard work.
+        if (costingSection && costingSection.style.display !== 'none') {
+          try { saveCurrentSection(); } catch (e) { console.error('Failed to save draft before logout:', e); }
+        }
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        showStatus('Session expired or invalid token. Redirecting to login...', 'error');
+        showStatus('Session expired. Your work has been saved as a draft — log back in and reopen Costing to continue.', 'error');
         setTimeout(() => window.location.href = 'login.html', 1200);
         throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
       }
@@ -301,6 +327,7 @@ function nextWizardStep() {
 
 function prevWizardStep() {
   if (currentWizardStep > 0) {
+    saveCurrentSection();
     currentWizardStep--;
     showWizardSection(currentWizardStep);
   }
@@ -728,6 +755,40 @@ function formatAmount(value) {
   return Number.isFinite(number) ? number.toFixed(2) : '0.00';
 }
 
+// Same as formatAmount but with thousands separators, for human-facing text
+// only (never write this into a value that gets parsed back with parseFloat).
+function formatDisplayAmount(value) {
+  const number = parseFloat(value || 0);
+  return Number.isFinite(number)
+    ? number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '0.00';
+}
+
+// Strips thousands separators back out so the text can be parsed as a number.
+function parseFormattedNumber(value) {
+  const number = parseFloat((value || '').toString().replace(/,/g, ''));
+  return Number.isFinite(number) ? number : 0;
+}
+
+// Live-formats a text input with thousands separators as the user types,
+// while keeping the cursor in a sensible place.
+function attachThousandsFormatting(inputEl) {
+  inputEl.addEventListener('input', () => {
+    const cursorFromEnd = inputEl.value.length - inputEl.selectionStart;
+    let raw = inputEl.value.replace(/[^\d.]/g, '');
+    const firstDot = raw.indexOf('.');
+    if (firstDot !== -1) {
+      raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+    }
+    const [intPart, decPart] = raw.split('.');
+    const cleanInt = (intPart || '').replace(/^0+(?=\d)/, '');
+    const formattedInt = cleanInt ? Number(cleanInt).toLocaleString('en-US') : '';
+    inputEl.value = decPart !== undefined ? `${formattedInt}.${decPart.slice(0, 2)}` : formattedInt;
+    const newPos = Math.max(0, inputEl.value.length - cursorFromEnd);
+    inputEl.setSelectionRange(newPos, newPos);
+  });
+}
+
 function setHiddenAmount(input, value) {
   if (!input) return;
   input.value = formatAmount(value);
@@ -736,7 +797,7 @@ function setHiddenAmount(input, value) {
     ? `[data-display-input="${input.id}"]`
     : `[data-display-for="${input.getAttribute('name')}"]`;
   const display = row?.querySelector(selector) || document.querySelector(selector);
-  if (display) display.textContent = formatAmount(value);
+  if (display) display.textContent = formatDisplayAmount(value);
 }
 
 function resetAmountDisplays(container) {
@@ -936,6 +997,82 @@ function populateQuickJobClients(clients) {
   });
 }
 
+function createQuickJobItemRow() {
+  const row = document.createElement('tr');
+  row.className = 'quick-job-item';
+  row.innerHTML = `
+    <td><input type="text" name="quick-job-item-name[]" required></td>
+    <td><input type="text" name="quick-job-item-description[]"></td>
+    <td><input type="text" inputmode="decimal" name="quick-job-item-quantity[]" required></td>
+    <td><input type="text" inputmode="decimal" name="quick-job-item-price[]" required></td>
+    <td><span class="amount-display quick-job-item-line-total">0.00</span></td>
+    <td><button type="button" class="remove-quick-job-item" title="Remove item" aria-label="Remove item"><i class="bi bi-trash3"></i></button></td>
+  `;
+  const quantityInput = row.querySelector('input[name="quick-job-item-quantity[]"]');
+  const priceInput = row.querySelector('input[name="quick-job-item-price[]"]');
+  attachThousandsFormatting(quantityInput);
+  attachThousandsFormatting(priceInput);
+  return row;
+}
+
+function addQuickJobItem() {
+  quickJobItemsList.appendChild(createQuickJobItemRow());
+  updateQuickJobRemoveButtons();
+}
+
+function resetQuickJobItems() {
+  quickJobItemsList.innerHTML = '';
+  quickJobItemsList.appendChild(createQuickJobItemRow());
+  updateQuickJobRemoveButtons();
+  updateQuickJobGrandTotal();
+}
+
+function updateQuickJobRemoveButtons() {
+  const rows = quickJobItemsList.querySelectorAll('.quick-job-item');
+  rows.forEach(row => {
+    const removeBtn = row.querySelector('.remove-quick-job-item');
+    if (removeBtn) removeBtn.style.display = rows.length > 1 ? '' : 'none';
+  });
+}
+
+function updateQuickJobLineTotal(row) {
+  const quantityInput = row.querySelector('input[name="quick-job-item-quantity[]"]');
+  const priceInput = row.querySelector('input[name="quick-job-item-price[]"]');
+  const lineTotalDisplay = row.querySelector('.quick-job-item-line-total');
+  const lineTotal = parseFormattedNumber(quantityInput.value) * parseFormattedNumber(priceInput.value);
+  if (lineTotalDisplay) lineTotalDisplay.textContent = formatDisplayAmount(lineTotal);
+  updateQuickJobGrandTotal();
+}
+
+function updateQuickJobGrandTotal() {
+  if (!quickJobItemsGrandTotal) return;
+  let grandTotal = 0;
+  quickJobItemsList.querySelectorAll('.quick-job-item').forEach(row => {
+    const quantityInput = row.querySelector('input[name="quick-job-item-quantity[]"]');
+    const priceInput = row.querySelector('input[name="quick-job-item-price[]"]');
+    grandTotal += parseFormattedNumber(quantityInput.value) * parseFormattedNumber(priceInput.value);
+  });
+  quickJobItemsGrandTotal.textContent = formatDisplayAmount(grandTotal);
+}
+
+function collectQuickJobItems() {
+  const items = [];
+  quickJobItemsList.querySelectorAll('.quick-job-item').forEach(row => {
+    const name = row.querySelector('input[name="quick-job-item-name[]"]').value.trim();
+    const description = row.querySelector('input[name="quick-job-item-description[]"]').value.trim();
+    const quantityRaw = row.querySelector('input[name="quick-job-item-quantity[]"]').value;
+    const priceRaw = row.querySelector('input[name="quick-job-item-price[]"]').value;
+    if (!name && !quantityRaw && !priceRaw) return; // skip a fully blank row
+    items.push({
+      name,
+      description,
+      quantity: parseFormattedNumber(quantityRaw),
+      fixed_price: parseFormattedNumber(priceRaw)
+    });
+  });
+  return items;
+}
+
 // job: pass to edit an existing fixed-price item.
 // attachQuotationId: pass to add a new fixed-price item straight to an existing quotation (client is fixed).
 async function openQuickJobModal(job, attachQuotationId) {
@@ -943,6 +1080,7 @@ async function openQuickJobModal(job, attachQuotationId) {
   quickJobModeExisting.checked = true;
   applyQuickJobClientMode();
   quickJobAttachQuotationIdInput.value = '';
+  resetQuickJobItems();
 
   if (job) {
     quickJobTitle.textContent = 'Edit Fixed-Price Job';
@@ -951,22 +1089,30 @@ async function openQuickJobModal(job, attachQuotationId) {
     quickJobExistingClientRow.style.display = 'none';
     quickJobNewClientRow.style.display = 'none';
     quickJobNewClientContactRow.style.display = 'none';
-    quickJobName.value = job.name || '';
-    quickJobDescription.value = job.description || '';
-    quickJobQuantity.value = job.quantity || '';
-    quickJobPrice.value = job.fixed_price || '';
+    // Editing only ever touches one job, so lock the table to a single row.
+    addQuickJobItemBtn.style.display = 'none';
+    const row = quickJobItemsList.querySelector('.quick-job-item');
+    row.querySelector('input[name="quick-job-item-name[]"]').value = job.name || '';
+    row.querySelector('input[name="quick-job-item-description[]"]').value = job.description || '';
+    const quantityInput = row.querySelector('input[name="quick-job-item-quantity[]"]');
+    const priceInput = row.querySelector('input[name="quick-job-item-price[]"]');
+    quantityInput.value = job.quantity ? Number(job.quantity).toLocaleString('en-US') : '';
+    priceInput.value = job.fixed_price ? Number(job.fixed_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    updateQuickJobLineTotal(row);
   } else if (attachQuotationId) {
-    quickJobTitle.textContent = `Add Fixed-Price Item to Quotation #${attachQuotationId}`;
+    quickJobTitle.textContent = `Add Fixed-Price Item(s) to Quotation #${attachQuotationId}`;
     quickJobIdInput.value = '';
     quickJobAttachQuotationIdInput.value = attachQuotationId;
     quickJobClientModeRow.style.display = 'none';
     quickJobExistingClientRow.style.display = 'none';
     quickJobNewClientRow.style.display = 'none';
     quickJobNewClientContactRow.style.display = 'none';
+    addQuickJobItemBtn.style.display = '';
   } else {
     quickJobTitle.textContent = 'Quick Fixed-Price Job';
     quickJobIdInput.value = '';
     quickJobClientModeRow.style.display = '';
+    addQuickJobItemBtn.style.display = '';
     applyQuickJobClientMode();
     if (!marginTiers || marginTiers.length === 0) {
       try {
@@ -1354,6 +1500,26 @@ quickJobBtns.forEach(btn => {
 quickJobModeExisting.addEventListener('change', applyQuickJobClientMode);
 quickJobModeNew.addEventListener('change', applyQuickJobClientMode);
 
+addQuickJobItemBtn.addEventListener('click', () => addQuickJobItem());
+
+quickJobItemsList.addEventListener('click', (e) => {
+  const removeButton = e.target.closest('.remove-quick-job-item');
+  if (!removeButton) return;
+  const row = removeButton.closest('.quick-job-item');
+  const allRows = quickJobItemsList.querySelectorAll('.quick-job-item');
+  if (allRows.length > 1) {
+    row.remove();
+    updateQuickJobRemoveButtons();
+    updateQuickJobGrandTotal();
+  }
+});
+
+quickJobItemsList.addEventListener('input', (e) => {
+  if (e.target.name === 'quick-job-item-quantity[]' || e.target.name === 'quick-job-item-price[]') {
+    updateQuickJobLineTotal(e.target.closest('.quick-job-item'));
+  }
+});
+
 document.getElementById('quick-job-close').addEventListener('click', () => {
   quickJobModal.style.display = 'none';
 });
@@ -1368,28 +1534,42 @@ quickJobForm.addEventListener('submit', async (e) => {
   e.preventDefault();
 
   const jobId = quickJobIdInput.value;
-  const jobPayload = {
-    name: quickJobName.value,
-    description: quickJobDescription.value,
-    quantity: parseInt(quickJobQuantity.value, 10),
-    fixed_price: parseFloat(quickJobPrice.value)
-  };
+  const items = collectQuickJobItems();
+
+  if (items.length === 0) {
+    showStatus('Add at least one item', 'error');
+    return;
+  }
+  for (const item of items) {
+    if (!item.name) {
+      showStatus('Every item needs a name', 'error');
+      return;
+    }
+    if (!item.quantity || item.quantity <= 0) {
+      showStatus(`Enter a valid quantity for "${item.name}"`, 'error');
+      return;
+    }
+    if (item.fixed_price < 0) {
+      showStatus(`Enter a valid unit price for "${item.name}"`, 'error');
+      return;
+    }
+  }
 
   try {
     if (jobId) {
       await apiRequest(`/costing/quick/${jobId}`, {
         method: 'PUT',
-        body: JSON.stringify({ job: jobPayload })
+        body: JSON.stringify({ job: items[0] })
       });
       showStatus('Fixed-price job updated successfully');
     } else if (quickJobAttachQuotationIdInput.value) {
       await apiRequest('/costing/quick', {
         method: 'POST',
-        body: JSON.stringify({ job: jobPayload, quotation_id: parseInt(quickJobAttachQuotationIdInput.value, 10) })
+        body: JSON.stringify({ items, quotation_id: parseInt(quickJobAttachQuotationIdInput.value, 10) })
       });
-      showStatus('Item added to quotation successfully');
+      showStatus(`${items.length} item(s) added to quotation successfully`);
     } else {
-      const payload = { job: jobPayload };
+      const payload = { items };
 
       if (quickJobModeNew.checked) {
         if (!quickJobNewClientName.value.trim()) {
@@ -1423,7 +1603,7 @@ quickJobForm.addEventListener('submit', async (e) => {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      showStatus('Fixed-price job saved successfully');
+      showStatus(`${items.length} fixed-price item(s) saved successfully`);
     }
 
     quickJobModal.style.display = 'none';
@@ -1901,6 +2081,66 @@ function populateJobClients(clients) {
   });
 }
 
+// A quotation bundles one or more jobs (line items) for a client. Group the
+// flat jobs list back into one card per quotation so a multi-item quotation
+// doesn't show up as several disconnected cards with no shared identity.
+function groupJobsByQuotation(jobs) {
+  const order = [];
+  const groups = {};
+  jobs.forEach(job => {
+    if (!groups[job.quotation_id]) {
+      groups[job.quotation_id] = [];
+      order.push(job.quotation_id);
+    }
+    groups[job.quotation_id].push(job);
+  });
+  return order.map(quotationId => groups[quotationId]);
+}
+
+function renderQuotationCard(items) {
+  const first = items[0];
+  const quotationId = first.quotation_id;
+  const earliestCreated = new Date(Math.min(...items.map(job => new Date(job.created_at))));
+
+  const itemsHtml = items.map(job => `
+    <div class="quotation-item-row">
+      <div class="quotation-item-main">
+        <strong>${job.name}</strong>${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}
+        <span class="quotation-item-status">${job.status}</span>
+      </div>
+      <div class="quotation-item-details">
+        <span>Qty: ${job.quantity}</span>
+        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${Number(job.fixed_price).toLocaleString()}</span>` : ''}
+        ${job.description ? `<span>${job.description}</span>` : ''}
+      </div>
+      <div class="quotation-item-actions">
+        <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
+      </div>
+    </div>
+  `).join('');
+
+  const quotationCard = document.createElement('div');
+  quotationCard.className = 'client-card'; // Reuse the same styling
+
+  quotationCard.innerHTML = `
+    <h3>Quotation #${quotationId}</h3>
+    <div class="client-info">
+      <div><strong>Client:</strong> ${first.client_name}</div>
+      <div><strong>Margin Tier:</strong> ${first.tier_name} (${first.margin_percentage}%)</div>
+      <div><strong>Items:</strong> ${items.length}</div>
+      <div><strong>Created:</strong> ${earliestCreated.toLocaleDateString()}</div>
+    </div>
+    <div class="quotation-items-list">${itemsHtml}</div>
+    <div class="card-actions">
+      <button type="button" class="print-quotation-btn" data-job-id="${first.id}">Quotation</button>
+      <button type="button" class="add-fixed-item-btn" data-quotation-id="${quotationId}">+ Fixed Item</button>
+      <button type="button" class="add-calc-item-btn" data-quotation-id="${quotationId}" data-client-id="${first.client_id}">+ Costed Item</button>
+    </div>
+  `;
+
+  return quotationCard;
+}
+
 function displayJobs(jobs) {
   jobsContainer.innerHTML = '';
 
@@ -1909,33 +2149,10 @@ function displayJobs(jobs) {
     return;
   }
 
-  jobs.forEach(job => {
-    jobsById[job.id] = job;
+  jobs.forEach(job => { jobsById[job.id] = job; });
 
-    const jobCard = document.createElement('div');
-    jobCard.className = 'client-card'; // Reuse the same styling
-
-    jobCard.innerHTML = `
-      <h3>${job.name}${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}</h3>
-      <div class="client-info">
-        <div><strong>Client:</strong> ${job.client_name}</div>
-        <div><strong>Margin Tier:</strong> ${job.tier_name} (${job.margin_percentage}%)</div>
-        <div><strong>Quantity:</strong> ${job.quantity}</div>
-        <div><strong>Status:</strong> ${job.status}</div>
-        <div><strong>Description:</strong> ${job.description || 'N/A'}</div>
-        ${job.pricing_mode === 'fixed' ? `<div><strong>Unit Price:</strong> UGX ${Number(job.fixed_price).toLocaleString()}</div>` : ''}
-        <div><strong>Quotation:</strong> #${job.quotation_id}</div>
-        <div><strong>Created:</strong> ${new Date(job.created_at).toLocaleDateString()}</div>
-      </div>
-      <div class="card-actions">
-        <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
-        <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
-        <button type="button" class="add-fixed-item-btn" data-quotation-id="${job.quotation_id}">+ Fixed Item</button>
-        <button type="button" class="add-calc-item-btn" data-quotation-id="${job.quotation_id}" data-client-id="${job.client_id}">+ Costed Item</button>
-      </div>
-    `;
-
-    jobsContainer.appendChild(jobCard);
+  groupJobsByQuotation(jobs).forEach(items => {
+    jobsContainer.appendChild(renderQuotationCard(items));
   });
 }
 
@@ -2376,7 +2593,7 @@ function updateCostSummary() {
       materialTotal += parseFloat(subtotalInput.value || 0);
     }
   });
-  document.getElementById('materials-total').textContent = materialTotal.toFixed(2);
+  document.getElementById('materials-total').textContent = formatDisplayAmount(materialTotal);
 
   // Calculate plates costs
   const a1Qty = parseInt(platesA1?.value || 0);
@@ -2388,7 +2605,7 @@ function updateCostSummary() {
   const a3Cost = parseFloat(platesA3Cost?.value || 0);
   
   const platesTotal = (a1Qty * a1Cost) + (a2Qty * a2Cost) + (a3Qty * a3Cost);
-  document.getElementById('plates-total').textContent = platesTotal.toFixed(2);
+  document.getElementById('plates-total').textContent = formatDisplayAmount(platesTotal);
 
   // Calculate machine costs
   const machineItems = document.querySelectorAll('.machine-item');
@@ -2399,11 +2616,11 @@ function updateCostSummary() {
       machineTotal += parseFloat(subtotalInput.value || 0);
     }
   });
-  document.getElementById('machines-total').textContent = machineTotal.toFixed(2);
+  document.getElementById('machines-total').textContent = formatDisplayAmount(machineTotal);
 
   // Calculate process costs
   const processTotal = parseFloat(specialProcessesTotal?.value || 0);
-  document.getElementById('processes-total').textContent = processTotal.toFixed(2);
+  document.getElementById('processes-total').textContent = formatDisplayAmount(processTotal);
 
   // Calculate binding costs
   let bindingSubtotal = 0;
@@ -2415,7 +2632,7 @@ function updateCostSummary() {
   });
   const bindingOtherCost = parseFloat(document.getElementById('binding-other-cost')?.value || 0);
   bindingSubtotal += bindingOtherCost;
-  document.getElementById('binding-total').textContent = bindingSubtotal.toFixed(2);
+  document.getElementById('binding-total').textContent = formatDisplayAmount(bindingSubtotal);
 
   // Calculate additional costs
   const designSubtotalInput = document.getElementById('design-subtotal');
@@ -2458,23 +2675,23 @@ function updateCostSummary() {
   if (designSubtotalInput) designSubtotalInput.value = designSubtotal.toFixed(2);
   if (typesettingSubtotalInput) typesettingSubtotalInput.value = typesettingSubtotal.toFixed(2);
   const designTotalElem = document.getElementById('design-total');
-  if (designTotalElem) designTotalElem.textContent = designSubtotal.toFixed(2);
+  if (designTotalElem) designTotalElem.textContent = formatDisplayAmount(designSubtotal);
   const typesettingTotalElem = document.getElementById('typesetting-total');
-  if (typesettingTotalElem) typesettingTotalElem.textContent = typesettingSubtotal.toFixed(2);
+  if (typesettingTotalElem) typesettingTotalElem.textContent = formatDisplayAmount(typesettingSubtotal);
   const wastageTotalElem = document.getElementById('wastage-total');
-  if (wastageTotalElem) wastageTotalElem.textContent = wastageCost.toFixed(2);
+  if (wastageTotalElem) wastageTotalElem.textContent = formatDisplayAmount(wastageCost);
   const subcontractTotalElem = document.getElementById('subcontract-total');
-  if (subcontractTotalElem) subcontractTotalElem.textContent = subcontractCost.toFixed(2);
+  if (subcontractTotalElem) subcontractTotalElem.textContent = formatDisplayAmount(subcontractCost);
   const storageTotalElem = document.getElementById('storage-total');
-  if (storageTotalElem) storageTotalElem.textContent = storageCost.toFixed(2);
+  if (storageTotalElem) storageTotalElem.textContent = formatDisplayAmount(storageCost);
   const transportTotalElem = document.getElementById('transport-total');
-  if (transportTotalElem) transportTotalElem.textContent = transportCost.toFixed(2);
+  if (transportTotalElem) transportTotalElem.textContent = formatDisplayAmount(transportCost);
   const overheadTotalElem = document.getElementById('overhead-total');
-  if (overheadTotalElem) overheadTotalElem.textContent = overheadCost.toFixed(2);
+  if (overheadTotalElem) overheadTotalElem.textContent = formatDisplayAmount(overheadCost);
 
   const productionTotal = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + additionalTotal;
   const productionTotalElem = document.getElementById('production-total');
-  if (productionTotalElem) productionTotalElem.textContent = productionTotal.toFixed(2);
+  if (productionTotalElem) productionTotalElem.textContent = formatDisplayAmount(productionTotal);
 
   // Calculate with margin
   const marginTierId = document.getElementById('margin-tier')?.value;
@@ -2483,25 +2700,25 @@ function updateCostSummary() {
   const marginAmountElem = document.getElementById('margin-amount') || document.getElementById('markup-amount');
   if (marginTier) {
     marginAmount = productionTotal * (marginTier.margin_percentage / 100);
-    if (marginAmountElem) marginAmountElem.textContent = marginAmount.toFixed(2);
+    if (marginAmountElem) marginAmountElem.textContent = formatDisplayAmount(marginAmount);
   } else {
     if (marginAmountElem) marginAmountElem.textContent = '0.00';
   }
 
   const sellingPrice = productionTotal + commissionCost + marginAmount;
   const commissionTotalElem = document.getElementById('commission-total');
-  if (commissionTotalElem) commissionTotalElem.textContent = commissionCost.toFixed(2);
+  if (commissionTotalElem) commissionTotalElem.textContent = formatDisplayAmount(commissionCost);
   const sellingPriceElem = document.getElementById('selling-price');
-  if (sellingPriceElem) sellingPriceElem.textContent = sellingPrice.toFixed(2);
+  if (sellingPriceElem) sellingPriceElem.textContent = formatDisplayAmount(sellingPrice);
 
   // Calculate VAT (18%)
   const vatAmount = sellingPrice * 0.18;
   const vatAmountElem = document.getElementById('vat-amount');
-  if (vatAmountElem) vatAmountElem.textContent = vatAmount.toFixed(2);
+  if (vatAmountElem) vatAmountElem.textContent = formatDisplayAmount(vatAmount);
 
   const finalTotal = sellingPrice + vatAmount;
   const finalTotalElem = document.getElementById('final-total') || document.getElementById('invoice-total');
-  if (finalTotalElem) finalTotalElem.textContent = finalTotal.toFixed(2);
+  if (finalTotalElem) finalTotalElem.textContent = formatDisplayAmount(finalTotal);
 }
 
 function getPaperSizeOrdinal(size) {
@@ -2612,7 +2829,7 @@ function updatePlatesCostSummary() {
   setHiddenAmount(platesA3SubtotalElem, a3Subtotal);
   
   const platesTotalElem = document.getElementById('plates-total');
-  if (platesTotalElem) platesTotalElem.textContent = platesTotal.toFixed(2);
+  if (platesTotalElem) platesTotalElem.textContent = formatDisplayAmount(platesTotal);
 }
 
 function collectCostingData() {

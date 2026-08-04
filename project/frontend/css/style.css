@@ -334,6 +334,50 @@ button[type="submit"]:hover {
   vertical-align: middle;
 }
 
+.quotation-items-list {
+  margin-top: 10px;
+  border-top: 1px solid #e5e5e5;
+}
+
+.quotation-item-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ececec;
+}
+
+.quotation-item-row:last-child {
+  border-bottom: 0;
+}
+
+.quotation-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quotation-item-status {
+  font-size: 12px;
+  color: #777;
+  text-transform: capitalize;
+}
+
+.quotation-item-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 13px;
+  color: #555;
+}
+
+.quotation-item-actions button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .modal {
   display: none;
   position: fixed;
@@ -353,6 +397,21 @@ button[type="submit"]:hover {
   width: 90%;
   max-width: 500px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+#quick-job-modal .modal-content {
+  max-width: 900px;
+}
+
+.costing-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.quick-job-items-grand-total {
+  margin-top: 10px;
+  text-align: right;
+  font-weight: 700;
 }
 
 .close {
@@ -930,7 +989,8 @@ main {
 .remove-material,
 .remove-paper-material,
 .remove-machine,
-.remove-process {
+.remove-process,
+.remove-quick-job-item {
   background: #fde8e8;
   color: #b42318;
 }
@@ -939,14 +999,16 @@ main {
 .remove-material:hover,
 .remove-paper-material:hover,
 .remove-machine:hover,
-.remove-process:hover {
+.remove-process:hover,
+.remove-quick-job-item:hover {
   background: #f8d1d1;
 }
 
 .remove-material,
 .remove-paper-material,
 .remove-machine,
-.remove-process {
+.remove-process,
+.remove-quick-job-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;

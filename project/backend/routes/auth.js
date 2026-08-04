@@ -82,4 +82,17 @@ router.get('/me', authenticateToken, (req, res) => {
   res.json({ user: req.user });
 });
 
+// Issues a renewed token for an already-valid session, so a user who stays
+// active in the wizard doesn't get logged out mid-session when the token
+// would otherwise expire.
+router.post('/refresh', authenticateToken, (req, res) => {
+  const token = jwt.sign(
+    { id: req.user.id, username: req.user.username, role: req.user.role },
+    getJwtSecret(),
+    { expiresIn: '8h' }
+  );
+
+  res.json({ token });
+});
+
 module.exports = { router, authenticateToken };

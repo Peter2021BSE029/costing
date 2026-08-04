@@ -50,6 +50,27 @@ if (!checkAuth()) {
   // Will redirect
 }
 
+// Silently renew the token while the tab stays open, so an active admin
+// session never hits a hard expiry mid-edit.
+function refreshToken() {
+  const token = localStorage.getItem('token');
+  if (!token) return;
+
+  fetch(`${API_BASE}/auth/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+    .then(response => (response.ok ? response.json() : null))
+    .then(data => {
+      if (data && data.token) {
+        localStorage.setItem('token', data.token);
+      }
+    })
+    .catch(() => {});
+}
+
+setInterval(refreshToken, 20 * 60 * 1000);
+
 const statusDiv = document.getElementById('status');
 const refreshAdminDataBtn = document.getElementById('refresh-admin-data');
 const materialsTableBody = document.querySelector('#admin-materials-table tbody');
