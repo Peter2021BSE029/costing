@@ -10,9 +10,11 @@ const { getQuotationItemsData, calculateGrandTotals, drawQuotationPdf } = requir
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const quotationsResult = await pool.query(`
-      SELECT q.id, q.status, q.created_at, c.name as client_name
+      SELECT q.id, q.name, q.status, q.created_at, q.client_id, c.name as client_name,
+             mt.tier_name, mt.margin_percentage
       FROM quotations q
       JOIN clients c ON q.client_id = c.id
+      LEFT JOIN margin_tiers mt ON c.margin_tier_id = mt.id
       ORDER BY q.created_at DESC
     `);
 
@@ -47,6 +49,24 @@ router.get('/:id', authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error('[QUOTATIONS] Detail error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rename a quotation (e.g. "August Print Run for Ministry of Health")
+router.put('/:id', authenticateToken, async (req, res) => {
+  const { name } = req.body;
+  try {
+    const result = await pool.query(
+      'UPDATE quotations SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name',
+      [(name || '').trim() || null, req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[QUOTATIONS] Rename error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

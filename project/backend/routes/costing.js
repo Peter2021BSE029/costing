@@ -2,9 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
-const PDFDocument = require('pdfkit');
 const { authenticateToken } = require('./auth');
-const { toNumber, getQuotationItemsData, drawQuotationPdf } = require('../lib/quotationPdf');
+const { toNumber } = require('../lib/quotationPdf');
 
 // Resolves the client to bill and the quotation to attach a new item to.
 // If quotation_id is supplied, the item joins that existing quotation (client is
@@ -392,39 +391,6 @@ router.put('/quick/:jobId', authenticateToken, async (req, res) => {
     res.json({ job_id: result.rows[0].id, message: 'Fixed-price job updated successfully' });
   } catch (err) {
     console.error('[COSTING] Quick job update failed:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Generate the PDF for the quotation a job belongs to (may include other items too)
-router.get('/quotation/:jobId', authenticateToken, async (req, res) => {
-  const { jobId } = req.params;
-
-  try {
-    const jobResult = await pool.query('SELECT quotation_id FROM jobs WHERE id = $1', [jobId]);
-    if (jobResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Job not found' });
-    }
-    const quotationId = jobResult.rows[0].quotation_id;
-
-    const data = await getQuotationItemsData(pool, quotationId);
-    if (!data) {
-      return res.status(404).json({ error: 'Quotation not found' });
-    }
-
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 0
-    });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename=quotation_${quotationId}.pdf`);
-    doc.pipe(res);
-    drawQuotationPdf(doc, quotationId, data);
-    doc.end();
-
-  } catch (err) {
-    console.error('[QUOTATION] Error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

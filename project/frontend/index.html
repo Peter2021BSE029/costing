@@ -15,7 +15,7 @@
       <button id="nav-home" class="nav-button"><i class="bi bi-house-door-fill"></i> Home</button>
       <button id="nav-costing" class="nav-button"><i class="bi bi-journal-text"></i> Cost Sheet</button>
       <button id="nav-clients" class="nav-button"><i class="bi bi-people-fill"></i> Clients</button>
-      <button id="nav-jobs" class="nav-button"><i class="bi bi-briefcase-fill"></i> Jobs</button>
+      <button id="nav-jobs" class="nav-button"><i class="bi bi-briefcase-fill"></i> Quotations</button>
     </nav>
   </header>
 
@@ -27,7 +27,8 @@
           <h2>Home</h2>
           <button id="quick-job-btn-home" type="button" class="secondary-button quick-job-btn">+ Quick Fixed-Price Job</button>
         </div>
-        <p>Quick access to recent jobs and system status.</p>
+        <div id="dashboard-stats" class="stat-tile-grid"></div>
+        <h3 class="dashboard-subheading">Recent Quotations</h3>
         <div id="job-summary-container"></div>
       </div>
     </section>
@@ -42,7 +43,7 @@
     <section id="jobs-section" style="display:none;">
       <div class="page-card">
         <div class="section-header">
-          <h2>Jobs</h2>
+          <h2>Quotations</h2>
         </div>
         <div id="jobs-container"></div>
       </div>

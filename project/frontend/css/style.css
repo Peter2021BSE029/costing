@@ -97,6 +97,59 @@ header button.active {
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
 }
 
+.stat-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.stat-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fffdf4;
+  border: 1px solid #eee1a8;
+  border-top: 4px solid #fcd116;
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.stat-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #000;
+  color: #fcd116;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.stat-tile-body {
+  min-width: 0;
+}
+
+.stat-tile-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1d1d1b;
+  line-height: 1.15;
+}
+
+.stat-tile-label {
+  font-size: 13px;
+  color: #666;
+}
+
+.dashboard-subheading {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #333;
+}
+
 .section-header {
   display: flex;
   flex-wrap: wrap;
@@ -332,6 +385,52 @@ button[type="submit"]:hover {
   background-color: #e6f4ea;
   color: #1e7e34;
   vertical-align: middle;
+}
+
+.quotation-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+.quotation-card-title h3 {
+  margin: 0;
+}
+
+.rename-quotation-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #777;
+  font-size: 14px;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.rename-quotation-btn:hover {
+  background: #eee;
+  color: #1d1d1b;
+}
+
+.quotation-rename-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.quotation-rename-form input {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid #d6d6d6;
+  border-radius: 6px;
+}
+
+.quotation-rename-form button {
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
 .quotation-items-list {

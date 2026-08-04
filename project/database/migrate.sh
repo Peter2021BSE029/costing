@@ -25,6 +25,7 @@ DB_NAME="${DB_NAME:-costing_db}"
 MIGRATIONS=(
   "add_fixed_pricing.sql"
   "add_quotations.sql"
+  "add_quotation_name.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do

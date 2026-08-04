@@ -88,6 +88,7 @@ const homeSection = document.getElementById('home-section');
 const clientsSection = document.getElementById('clients-section');
 const jobsSection = document.getElementById('jobs-section');
 const jobSummaryContainer = document.getElementById('job-summary-container');
+const dashboardStats = document.getElementById('dashboard-stats');
 const existingClientSelect = document.getElementById('existing-client');
 const cancelCostingBtn = document.getElementById('cancel-costing');
 const clientsContainer = document.getElementById('clients-container');
@@ -806,10 +807,10 @@ function resetAmountDisplays(container) {
   });
 }
 
-async function generateQuotation(jobId) {
+async function generateQuotation(quotationId) {
   try {
     const token = localStorage.getItem('token');
-    const response = await fetch(`${API_BASE}/costing/quotation/${jobId}`, {
+    const response = await fetch(`${API_BASE}/quotations/${quotationId}/pdf`, {
       method: 'GET',
       mode: 'cors',
       headers: token ? { Authorization: `Bearer ${token}` } : {}
@@ -822,7 +823,7 @@ async function generateQuotation(jobId) {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `quotation_${jobId}.pdf`;
+    a.download = `quotation_${quotationId}.pdf`;
     document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
@@ -847,38 +848,47 @@ function showSection(section) {
   if (section) section.style.display = 'block';
 }
 
+function statTile(icon, value, label) {
+  return `
+    <div class="stat-tile">
+      <span class="stat-tile-icon"><i class="bi ${icon}"></i></span>
+      <div class="stat-tile-body">
+        <div class="stat-tile-value">${value}</div>
+        <div class="stat-tile-label">${label}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboardStats(clients, quotations) {
+  const totalItems = quotations.reduce((sum, q) => sum + Number(q.item_count || 0), 0);
+  const totalQuoted = quotations.reduce((sum, q) => sum + Number(q.grand_total || 0), 0);
+
+  dashboardStats.innerHTML = [
+    statTile('bi-people-fill', clients.length.toLocaleString(), 'Clients in system'),
+    statTile('bi-file-earmark-text-fill', quotations.length.toLocaleString(), 'Quotations'),
+    statTile('bi-journal-text', totalItems.toLocaleString(), 'Jobs entered'),
+    statTile('bi-cash-stack', `UGX ${formatDisplayAmount(totalQuoted)}`, 'Total quoted value')
+  ].join('');
+}
+
 async function displayJobSummary() {
   try {
-    const jobs = await apiRequest('/jobs');
-    jobSummaryContainer.innerHTML = '';
+    const [clients, quotations] = await Promise.all([
+      apiRequest('/clients'),
+      apiRequest('/quotations')
+    ]);
 
-    if (jobs.length === 0) {
-      jobSummaryContainer.innerHTML = '<p>No recent jobs found.</p>';
+    renderDashboardStats(clients, quotations);
+
+    jobSummaryContainer.innerHTML = '';
+    if (quotations.length === 0) {
+      jobSummaryContainer.innerHTML = '<p>No recent quotations found.</p>';
       return;
     }
 
-    jobs.forEach(job => { jobsById[job.id] = job; });
-
-    jobs.slice(0, 5).forEach(job => {
-      const jobCard = document.createElement('div');
-      jobCard.className = 'client-card';
-      jobCard.innerHTML = `
-        <h3>${job.name}${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}</h3>
-        <div class="client-info">
-          <div><strong>Client:</strong> ${job.client_name || 'N/A'}</div>
-          <div><strong>Status:</strong> ${job.status || 'pending'}</div>
-          <div><strong>Quantity:</strong> ${job.quantity}</div>
-          <div><strong>Quotation:</strong> #${job.quotation_id}</div>
-          <div><strong>Created:</strong> ${new Date(job.created_at).toLocaleDateString()}</div>
-        </div>
-        <div class="card-actions">
-          <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
-          <button type="button" class="print-quotation-btn" data-job-id="${job.id}">Quotation</button>
-          <button type="button" class="add-fixed-item-btn" data-quotation-id="${job.quotation_id}">+ Fixed Item</button>
-          <button type="button" class="add-calc-item-btn" data-quotation-id="${job.quotation_id}" data-client-id="${job.client_id}">+ Costed Item</button>
-        </div>
-      `;
-      jobSummaryContainer.appendChild(jobCard);
+    quotations.slice(0, 5).forEach(quotation => {
+      jobSummaryContainer.appendChild(renderQuotationSummaryCard(quotation));
     });
   } catch (error) {
     console.error('Error loading job summary:', error);
@@ -1334,8 +1344,8 @@ navJobsBtn.addEventListener('click', async () => {
   showSection(jobsSection);
   setActiveNav(navJobsBtn);
   try {
-    const jobs = await apiRequest('/jobs');
-    displayJobs(jobs);
+    const quotations = await apiRequest('/quotations');
+    displayJobs(quotations);
   } catch (error) {
     // Error already shown by apiRequest
   }
@@ -1477,19 +1487,43 @@ async function addCalculatedItemToQuotation(quotationId, clientId) {
 }
 
 function handleJobCardClick(e) {
-  if (e.target.classList.contains('load-job-btn')) {
-    editJob(e.target.dataset.jobId);
-  } else if (e.target.classList.contains('print-quotation-btn')) {
-    generateQuotation(e.target.dataset.jobId);
-  } else if (e.target.classList.contains('add-fixed-item-btn')) {
-    openQuickJobModal(null, e.target.dataset.quotationId);
-  } else if (e.target.classList.contains('add-calc-item-btn')) {
-    addCalculatedItemToQuotation(e.target.dataset.quotationId, e.target.dataset.clientId);
+  const loadBtn = e.target.closest('.load-job-btn');
+  const printBtn = e.target.closest('.print-quotation-btn');
+  const addFixedBtn = e.target.closest('.add-fixed-item-btn');
+  const addCalcBtn = e.target.closest('.add-calc-item-btn');
+  const toggleItemsBtn = e.target.closest('.toggle-quotation-items-btn');
+  const renameBtn = e.target.closest('.rename-quotation-btn');
+  const cancelRenameBtn = e.target.closest('.quotation-rename-cancel');
+
+  if (loadBtn) {
+    editJob(loadBtn.dataset.jobId);
+  } else if (printBtn) {
+    generateQuotation(printBtn.dataset.quotationId);
+  } else if (addFixedBtn) {
+    openQuickJobModal(null, addFixedBtn.dataset.quotationId);
+  } else if (addCalcBtn) {
+    addCalculatedItemToQuotation(addCalcBtn.dataset.quotationId, addCalcBtn.dataset.clientId);
+  } else if (toggleItemsBtn) {
+    toggleQuotationItems(toggleItemsBtn);
+  } else if (renameBtn) {
+    startQuotationRename(renameBtn);
+  } else if (cancelRenameBtn) {
+    e.preventDefault();
+    cancelQuotationRename(cancelRenameBtn.closest('.client-card'));
+  }
+}
+
+function handleJobCardSubmit(e) {
+  if (e.target.matches('[data-rename-form]')) {
+    e.preventDefault();
+    saveQuotationRename(e.target.closest('.client-card'), e.target);
   }
 }
 
 jobSummaryContainer.addEventListener('click', handleJobCardClick);
 jobsContainer.addEventListener('click', handleJobCardClick);
+jobSummaryContainer.addEventListener('submit', handleJobCardSubmit);
+jobsContainer.addEventListener('submit', handleJobCardSubmit);
 
 quickJobBtns.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1607,8 +1641,11 @@ quickJobForm.addEventListener('submit', async (e) => {
     }
 
     quickJobModal.style.display = 'none';
-    const jobs = await apiRequest('/jobs');
-    displayJobs(jobs);
+    const quotations = await apiRequest('/quotations');
+    displayJobs(quotations);
+    if (homeSection.style.display !== 'none') {
+      displayJobSummary();
+    }
   } catch (error) {
     // Error already shown by apiRequest
   }
@@ -2034,6 +2071,7 @@ if (saveJobBtn) {
 
       showSection(homeSection);
       setActiveNav(navHomeBtn);
+      displayJobSummary();
       comprehensiveForm.reset();
       resetMaterials();
       resetMachines();
@@ -2084,25 +2122,13 @@ function populateJobClients(clients) {
 // A quotation bundles one or more jobs (line items) for a client. Group the
 // flat jobs list back into one card per quotation so a multi-item quotation
 // doesn't show up as several disconnected cards with no shared identity.
-function groupJobsByQuotation(jobs) {
-  const order = [];
-  const groups = {};
-  jobs.forEach(job => {
-    if (!groups[job.quotation_id]) {
-      groups[job.quotation_id] = [];
-      order.push(job.quotation_id);
-    }
-    groups[job.quotation_id].push(job);
-  });
-  return order.map(quotationId => groups[quotationId]);
-}
+// Cache of quotation objects by id, kept in sync with rename edits so re-renders
+// (e.g. after collapsing/expanding items) show the latest name.
+const quotationsById = {};
 
-function renderQuotationCard(items) {
-  const first = items[0];
-  const quotationId = first.quotation_id;
-  const earliestCreated = new Date(Math.min(...items.map(job => new Date(job.created_at))));
-
-  const itemsHtml = items.map(job => `
+function renderQuotationItemRow(job) {
+  jobsById[job.id] = job;
+  return `
     <div class="quotation-item-row">
       <div class="quotation-item-main">
         <strong>${job.name}</strong>${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}
@@ -2110,49 +2136,131 @@ function renderQuotationCard(items) {
       </div>
       <div class="quotation-item-details">
         <span>Qty: ${job.quantity}</span>
-        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${Number(job.fixed_price).toLocaleString()}</span>` : ''}
+        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${formatDisplayAmount(job.fixed_price)}</span>` : ''}
         ${job.description ? `<span>${job.description}</span>` : ''}
       </div>
       <div class="quotation-item-actions">
         <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
       </div>
     </div>
-  `).join('');
-
-  const quotationCard = document.createElement('div');
-  quotationCard.className = 'client-card'; // Reuse the same styling
-
-  quotationCard.innerHTML = `
-    <h3>Quotation #${quotationId}</h3>
-    <div class="client-info">
-      <div><strong>Client:</strong> ${first.client_name}</div>
-      <div><strong>Margin Tier:</strong> ${first.tier_name} (${first.margin_percentage}%)</div>
-      <div><strong>Items:</strong> ${items.length}</div>
-      <div><strong>Created:</strong> ${earliestCreated.toLocaleDateString()}</div>
-    </div>
-    <div class="quotation-items-list">${itemsHtml}</div>
-    <div class="card-actions">
-      <button type="button" class="print-quotation-btn" data-job-id="${first.id}">Quotation</button>
-      <button type="button" class="add-fixed-item-btn" data-quotation-id="${quotationId}">+ Fixed Item</button>
-      <button type="button" class="add-calc-item-btn" data-quotation-id="${quotationId}" data-client-id="${first.client_id}">+ Costed Item</button>
-    </div>
   `;
-
-  return quotationCard;
 }
 
-function displayJobs(jobs) {
-  jobsContainer.innerHTML = '';
+async function toggleQuotationItems(button) {
+  const quotationId = button.dataset.quotationId;
+  const card = button.closest('.client-card');
+  const itemsContainer = card.querySelector('[data-items-container]');
 
-  if (jobs.length === 0) {
-    jobsContainer.innerHTML = '<p>No jobs found. Add your first job!</p>';
+  const isOpen = itemsContainer.style.display !== 'none';
+  if (isOpen) {
+    itemsContainer.style.display = 'none';
+    button.textContent = 'View Items';
     return;
   }
 
-  jobs.forEach(job => { jobsById[job.id] = job; });
+  if (!itemsContainer.dataset.loaded) {
+    itemsContainer.innerHTML = '<p>Loading items...</p>';
+    itemsContainer.style.display = 'block';
+    try {
+      const quotation = await apiRequest(`/quotations/${quotationId}`);
+      itemsContainer.innerHTML = quotation.items.map(renderQuotationItemRow).join('');
+      itemsContainer.dataset.loaded = 'true';
+    } catch (error) {
+      itemsContainer.innerHTML = '<p>Unable to load items.</p>';
+      return;
+    }
+  } else {
+    itemsContainer.style.display = 'block';
+  }
+  button.textContent = 'Hide Items';
+}
 
-  groupJobsByQuotation(jobs).forEach(items => {
-    jobsContainer.appendChild(renderQuotationCard(items));
+function startQuotationRename(button) {
+  const card = button.closest('.client-card');
+  const titleRow = card.querySelector('[data-title-row]');
+  const quotationId = card.dataset.quotationId;
+  const quotation = quotationsById[quotationId];
+
+  titleRow.innerHTML = `
+    <form class="quotation-rename-form" data-rename-form>
+      <input type="text" value="${quotation.name ? quotation.name.replace(/"/g, '&quot;') : ''}" placeholder="Name this quotation (e.g. what job it's for)" maxlength="150">
+      <button type="submit" class="quotation-rename-save">Save</button>
+      <button type="button" class="quotation-rename-cancel">Cancel</button>
+    </form>
+  `;
+  titleRow.querySelector('input').focus();
+}
+
+function cancelQuotationRename(card) {
+  const titleRow = card.querySelector('[data-title-row]');
+  const quotation = quotationsById[card.dataset.quotationId];
+  renderQuotationTitleRow(titleRow, quotation);
+}
+
+function renderQuotationTitleRow(titleRow, quotation) {
+  const displayName = quotation.name || `Quotation #${quotation.id}`;
+  titleRow.innerHTML = `
+    <h3>${displayName}</h3>
+    <button type="button" class="rename-quotation-btn" title="Rename quotation" aria-label="Rename quotation"><i class="bi bi-pencil"></i></button>
+  `;
+}
+
+async function saveQuotationRename(card, form) {
+  const quotationId = card.dataset.quotationId;
+  const input = form.querySelector('input');
+  try {
+    const updated = await apiRequest(`/quotations/${quotationId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: input.value })
+    });
+    quotationsById[quotationId].name = updated.name;
+    renderQuotationTitleRow(card.querySelector('[data-title-row]'), quotationsById[quotationId]);
+    showStatus('Quotation renamed');
+  } catch (error) {
+    // Error already shown by apiRequest
+  }
+}
+
+function renderQuotationSummaryCard(quotation) {
+  quotationsById[quotation.id] = quotation;
+
+  const card = document.createElement('div');
+  card.className = 'client-card';
+  card.dataset.quotationId = quotation.id;
+
+  card.innerHTML = `
+    <div class="quotation-card-title" data-title-row></div>
+    <div class="client-info">
+      <div><strong>Client:</strong> ${quotation.client_name}</div>
+      <div><strong>Margin Tier:</strong> ${quotation.tier_name ? `${quotation.tier_name} (${quotation.margin_percentage}%)` : 'N/A'}</div>
+      <div><strong>Items:</strong> ${quotation.item_count}</div>
+      <div><strong>Total:</strong> UGX ${formatDisplayAmount(quotation.grand_total)}</div>
+      <div><strong>Created:</strong> ${new Date(quotation.created_at).toLocaleDateString()}</div>
+    </div>
+    <div class="quotation-items-list" data-items-container style="display:none;"></div>
+    <div class="card-actions">
+      <button type="button" class="toggle-quotation-items-btn" data-quotation-id="${quotation.id}">View Items</button>
+      <button type="button" class="print-quotation-btn" data-quotation-id="${quotation.id}">Quotation</button>
+      <button type="button" class="add-fixed-item-btn" data-quotation-id="${quotation.id}">+ Fixed Item</button>
+      <button type="button" class="add-calc-item-btn" data-quotation-id="${quotation.id}" data-client-id="${quotation.client_id}">+ Costed Item</button>
+    </div>
+  `;
+
+  renderQuotationTitleRow(card.querySelector('[data-title-row]'), quotation);
+
+  return card;
+}
+
+function displayJobs(quotations) {
+  jobsContainer.innerHTML = '';
+
+  if (quotations.length === 0) {
+    jobsContainer.innerHTML = '<p>No quotations found. Add your first job!</p>';
+    return;
+  }
+
+  quotations.forEach(quotation => {
+    jobsContainer.appendChild(renderQuotationSummaryCard(quotation));
   });
 }
 
