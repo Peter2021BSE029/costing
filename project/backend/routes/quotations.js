@@ -53,20 +53,25 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Rename a quotation (e.g. "August Print Run for Ministry of Health")
+// Update a quotation's name and the free-text fields printed on the PDF
+// (delivery, terms, special conditions)
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { name } = req.body;
+  const { name, delivery_text, terms_text, special_conditions_text } = req.body;
+  const clean = (value) => (value || '').toString().trim() || null;
   try {
     const result = await pool.query(
-      'UPDATE quotations SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name',
-      [(name || '').trim() || null, req.params.id]
+      `UPDATE quotations
+       SET name = $1, delivery_text = $2, terms_text = $3, special_conditions_text = $4, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5
+       RETURNING id, name, delivery_text, terms_text, special_conditions_text`,
+      [clean(name), clean(delivery_text), clean(terms_text), clean(special_conditions_text), req.params.id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Quotation not found' });
     }
     res.json(result.rows[0]);
   } catch (err) {
-    console.error('[QUOTATIONS] Rename error:', err.message);
+    console.error('[QUOTATIONS] Update error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

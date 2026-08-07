@@ -414,25 +414,6 @@ button[type="submit"]:hover {
   color: #1d1d1b;
 }
 
-.quotation-rename-form {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
-
-.quotation-rename-form input {
-  flex: 1;
-  padding: 6px 9px;
-  border: 1px solid #d6d6d6;
-  border-radius: 6px;
-}
-
-.quotation-rename-form button {
-  padding: 6px 10px;
-  font-size: 13px;
-}
-
 .quotation-items-list {
   margin-top: 10px;
   border-top: 1px solid #e5e5e5;

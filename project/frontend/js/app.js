@@ -143,6 +143,14 @@ const quickJobItemsList = document.getElementById('quick-job-items-list');
 const addQuickJobItemBtn = document.getElementById('add-quick-job-item');
 const quickJobItemsGrandTotal = document.getElementById('quick-job-items-grand-total');
 
+const editQuotationModal = document.getElementById('edit-quotation-modal');
+const editQuotationForm = document.getElementById('edit-quotation-form');
+const editQuotationIdInput = document.getElementById('edit-quotation-id');
+const editQuotationName = document.getElementById('edit-quotation-name');
+const editQuotationDelivery = document.getElementById('edit-quotation-delivery');
+const editQuotationTerms = document.getElementById('edit-quotation-terms');
+const editQuotationSpecialConditions = document.getElementById('edit-quotation-special-conditions');
+
 function applyQuickJobClientMode() {
   const useNew = quickJobModeNew.checked;
   quickJobExistingClientRow.style.display = useNew ? 'none' : '';
@@ -1015,6 +1023,12 @@ function createQuickJobItemRow() {
     <td><input type="text" name="quick-job-item-description[]"></td>
     <td><input type="text" inputmode="decimal" name="quick-job-item-quantity[]" required></td>
     <td><input type="text" inputmode="decimal" name="quick-job-item-price[]" required></td>
+    <td>
+      <select name="quick-job-item-vat[]" title="Whether the unit price already includes 18% VAT">
+        <option value="exclusive">+ VAT (18%)</option>
+        <option value="inclusive">VAT included</option>
+      </select>
+    </td>
     <td><span class="amount-display quick-job-item-line-total">0.00</span></td>
     <td><button type="button" class="remove-quick-job-item" title="Remove item" aria-label="Remove item"><i class="bi bi-trash3"></i></button></td>
   `;
@@ -1072,12 +1086,14 @@ function collectQuickJobItems() {
     const description = row.querySelector('input[name="quick-job-item-description[]"]').value.trim();
     const quantityRaw = row.querySelector('input[name="quick-job-item-quantity[]"]').value;
     const priceRaw = row.querySelector('input[name="quick-job-item-price[]"]').value;
+    const vatOption = row.querySelector('select[name="quick-job-item-vat[]"]').value;
     if (!name && !quantityRaw && !priceRaw) return; // skip a fully blank row
     items.push({
       name,
       description,
       quantity: parseFormattedNumber(quantityRaw),
-      fixed_price: parseFormattedNumber(priceRaw)
+      fixed_price: parseFormattedNumber(priceRaw),
+      vat_option: vatOption
     });
   });
   return items;
@@ -1108,6 +1124,7 @@ async function openQuickJobModal(job, attachQuotationId) {
     const priceInput = row.querySelector('input[name="quick-job-item-price[]"]');
     quantityInput.value = job.quantity ? Number(job.quantity).toLocaleString('en-US') : '';
     priceInput.value = job.fixed_price ? Number(job.fixed_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+    row.querySelector('select[name="quick-job-item-vat[]"]').value = job.vat_option === 'inclusive' ? 'inclusive' : 'exclusive';
     updateQuickJobLineTotal(row);
   } else if (attachQuotationId) {
     quickJobTitle.textContent = `Add Fixed-Price Item(s) to Quotation #${attachQuotationId}`;
@@ -1492,8 +1509,7 @@ function handleJobCardClick(e) {
   const addFixedBtn = e.target.closest('.add-fixed-item-btn');
   const addCalcBtn = e.target.closest('.add-calc-item-btn');
   const toggleItemsBtn = e.target.closest('.toggle-quotation-items-btn');
-  const renameBtn = e.target.closest('.rename-quotation-btn');
-  const cancelRenameBtn = e.target.closest('.quotation-rename-cancel');
+  const editBtn = e.target.closest('.rename-quotation-btn');
 
   if (loadBtn) {
     editJob(loadBtn.dataset.jobId);
@@ -1505,25 +1521,13 @@ function handleJobCardClick(e) {
     addCalculatedItemToQuotation(addCalcBtn.dataset.quotationId, addCalcBtn.dataset.clientId);
   } else if (toggleItemsBtn) {
     toggleQuotationItems(toggleItemsBtn);
-  } else if (renameBtn) {
-    startQuotationRename(renameBtn);
-  } else if (cancelRenameBtn) {
-    e.preventDefault();
-    cancelQuotationRename(cancelRenameBtn.closest('.client-card'));
-  }
-}
-
-function handleJobCardSubmit(e) {
-  if (e.target.matches('[data-rename-form]')) {
-    e.preventDefault();
-    saveQuotationRename(e.target.closest('.client-card'), e.target);
+  } else if (editBtn) {
+    openEditQuotationModal(editBtn);
   }
 }
 
 jobSummaryContainer.addEventListener('click', handleJobCardClick);
 jobsContainer.addEventListener('click', handleJobCardClick);
-jobSummaryContainer.addEventListener('submit', handleJobCardSubmit);
-jobsContainer.addEventListener('submit', handleJobCardSubmit);
 
 quickJobBtns.forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2136,7 +2140,7 @@ function renderQuotationItemRow(job) {
       </div>
       <div class="quotation-item-details">
         <span>Qty: ${job.quantity}</span>
-        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${formatDisplayAmount(job.fixed_price)}</span>` : ''}
+        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${formatDisplayAmount(job.fixed_price)} (${job.vat_option === 'inclusive' ? 'VAT incl.' : '+VAT'})</span>` : ''}
         ${job.description ? `<span>${job.description}</span>` : ''}
       </div>
       <div class="quotation-item-actions">
@@ -2175,51 +2179,70 @@ async function toggleQuotationItems(button) {
   button.textContent = 'Hide Items';
 }
 
-function startQuotationRename(button) {
-  const card = button.closest('.client-card');
-  const titleRow = card.querySelector('[data-title-row]');
-  const quotationId = card.dataset.quotationId;
-  const quotation = quotationsById[quotationId];
-
-  titleRow.innerHTML = `
-    <form class="quotation-rename-form" data-rename-form>
-      <input type="text" value="${quotation.name ? quotation.name.replace(/"/g, '&quot;') : ''}" placeholder="Name this quotation (e.g. what job it's for)" maxlength="150">
-      <button type="submit" class="quotation-rename-save">Save</button>
-      <button type="button" class="quotation-rename-cancel">Cancel</button>
-    </form>
-  `;
-  titleRow.querySelector('input').focus();
-}
-
-function cancelQuotationRename(card) {
-  const titleRow = card.querySelector('[data-title-row]');
-  const quotation = quotationsById[card.dataset.quotationId];
-  renderQuotationTitleRow(titleRow, quotation);
-}
-
 function renderQuotationTitleRow(titleRow, quotation) {
   const displayName = quotation.name || `Quotation #${quotation.id}`;
   titleRow.innerHTML = `
     <h3>${displayName}</h3>
-    <button type="button" class="rename-quotation-btn" title="Rename quotation" aria-label="Rename quotation"><i class="bi bi-pencil"></i></button>
+    <button type="button" class="rename-quotation-btn" title="Edit quotation details" aria-label="Edit quotation details"><i class="bi bi-pencil"></i></button>
   `;
 }
 
-async function saveQuotationRename(card, form) {
-  const quotationId = card.dataset.quotationId;
-  const input = form.querySelector('input');
+async function openEditQuotationModal(button) {
+  const quotationId = button.closest('.client-card').dataset.quotationId;
+  editQuotationIdInput.value = quotationId;
+  editQuotationName.value = '';
+  editQuotationDelivery.value = '';
+  editQuotationTerms.value = '';
+  editQuotationSpecialConditions.value = '';
+
   try {
-    const updated = await apiRequest(`/quotations/${quotationId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name: input.value })
-    });
-    quotationsById[quotationId].name = updated.name;
-    renderQuotationTitleRow(card.querySelector('[data-title-row]'), quotationsById[quotationId]);
-    showStatus('Quotation renamed');
+    const quotation = await apiRequest(`/quotations/${quotationId}`);
+    editQuotationName.value = quotation.name || '';
+    editQuotationDelivery.value = quotation.delivery_text || '';
+    editQuotationTerms.value = quotation.terms_text || '';
+    editQuotationSpecialConditions.value = quotation.special_conditions_text || '';
+    editQuotationModal.style.display = 'block';
   } catch (error) {
     // Error already shown by apiRequest
   }
 }
+
+editQuotationForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const quotationId = editQuotationIdInput.value;
+  try {
+    const updated = await apiRequest(`/quotations/${quotationId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: editQuotationName.value,
+        delivery_text: editQuotationDelivery.value,
+        terms_text: editQuotationTerms.value,
+        special_conditions_text: editQuotationSpecialConditions.value
+      })
+    });
+    if (quotationsById[quotationId]) {
+      quotationsById[quotationId].name = updated.name;
+    }
+    const card = document.querySelector(`.client-card[data-quotation-id="${quotationId}"]`);
+    if (card) {
+      renderQuotationTitleRow(card.querySelector('[data-title-row]'), quotationsById[quotationId] || { id: quotationId, name: updated.name });
+    }
+    editQuotationModal.style.display = 'none';
+    showStatus('Quotation details saved');
+  } catch (error) {
+    // Error already shown by apiRequest
+  }
+});
+
+document.getElementById('edit-quotation-close').addEventListener('click', () => {
+  editQuotationModal.style.display = 'none';
+});
+
+window.addEventListener('click', (e) => {
+  if (e.target === editQuotationModal) {
+    editQuotationModal.style.display = 'none';
+  }
+});
 
 function renderQuotationSummaryCard(quotation) {
   quotationsById[quotation.id] = quotation;

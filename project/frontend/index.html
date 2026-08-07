@@ -104,6 +104,7 @@
                     <th>Description</th>
                     <th>Quantity</th>
                     <th>Unit Price (UGX)</th>
+                    <th>VAT</th>
                     <th>Line Total (UGX)</th>
                     <th>Actions</th>
                   </tr>
@@ -114,6 +115,12 @@
                     <td><input type="text" name="quick-job-item-description[]"></td>
                     <td><input type="text" inputmode="decimal" name="quick-job-item-quantity[]" required></td>
                     <td><input type="text" inputmode="decimal" name="quick-job-item-price[]" required></td>
+                    <td>
+                      <select name="quick-job-item-vat[]" title="Whether the unit price already includes 18% VAT">
+                        <option value="exclusive">+ VAT (18%)</option>
+                        <option value="inclusive">VAT included</option>
+                      </select>
+                    </td>
                     <td><span class="amount-display quick-job-item-line-total">0.00</span></td>
                     <td><button type="button" class="remove-quick-job-item" style="display:none;" title="Remove item" aria-label="Remove item"><i class="bi bi-trash3"></i></button></td>
                   </tr>
@@ -122,6 +129,44 @@
             </div>
             <button type="button" id="add-quick-job-item" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Item</button>
             <div class="quick-job-items-grand-total">Total: UGX <span id="quick-job-items-grand-total">0.00</span></div>
+          </div>
+          <div class="modal-buttons">
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Quotation Details modal -->
+    <div id="edit-quotation-modal" class="modal">
+      <div class="modal-content">
+        <span class="close" id="edit-quotation-close">&times;</span>
+        <h3>Edit Quotation Details</h3>
+        <form id="edit-quotation-form">
+          <input type="hidden" id="edit-quotation-id" value="">
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="edit-quotation-name">Name (what this job is for):</label>
+              <input type="text" id="edit-quotation-name" maxlength="150" placeholder="e.g. August Print Run for Ministry of Health">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="edit-quotation-delivery">Delivery (printed before "from receipt of order at factory"):</label>
+              <input type="text" id="edit-quotation-delivery" maxlength="300" placeholder="e.g. 2 weeks">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="edit-quotation-terms">Terms:</label>
+              <input type="text" id="edit-quotation-terms" maxlength="300" placeholder="e.g. 50% deposit, balance on delivery">
+            </div>
+          </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="edit-quotation-special-conditions">Special conditions:</label>
+              <input type="text" id="edit-quotation-special-conditions" maxlength="300">
+            </div>
           </div>
           <div class="modal-buttons">
             <button type="submit">Save</button>

@@ -12,7 +12,7 @@ function formatUGX(value) {
 }
 
 function getLogoPath() {
-  const logoPath = path.join(__dirname, '..', '..', 'UPPC-LOGO.png');
+  const logoPath = path.join(__dirname, '..', '..', 'images', 'UPPC_NEW_LOGO_2026.png');
   return fs.existsSync(logoPath) ? logoPath : null;
 }
 
@@ -82,8 +82,21 @@ function calculateItemTotals(item) {
 
   if (job.pricing_mode === 'fixed') {
     const unitPrice = toNumber(job.fixed_price);
-    const sellingPrice = unitPrice * toNumber(job.quantity);
-    const vatAmount = sellingPrice * 0.18;
+    const quantity = toNumber(job.quantity);
+    let sellingPrice;
+    let vatAmount;
+
+    if (job.vat_option === 'inclusive') {
+      // The entered price already has 18% VAT baked in, so back it out
+      // instead of adding it again on top.
+      const grossTotal = unitPrice * quantity;
+      sellingPrice = grossTotal / 1.18;
+      vatAmount = grossTotal - sellingPrice;
+    } else {
+      sellingPrice = unitPrice * quantity;
+      vatAmount = sellingPrice * 0.18;
+    }
+
     return {
       productionTotal: sellingPrice,
       commissionAmount: 0,
@@ -91,7 +104,7 @@ function calculateItemTotals(item) {
       sellingPrice,
       vatAmount,
       finalTotal: sellingPrice + vatAmount,
-      rate: unitPrice
+      rate: quantity > 0 ? sellingPrice / quantity : sellingPrice
     };
   }
 
@@ -178,38 +191,50 @@ function drawQuotationPdf(doc, quotationId, data) {
 
   doc.fillColor('black').lineJoin('miter');
 
+  // The logo image already carries the full wordmark ("UGANDA PRINTING AND
+  // PUBLISHING CORPORATION" + "UNDER THE OFFICE OF THE PRESIDENT"), so it's
+  // shown large and centered here instead of redrawing that text separately.
+  const logoBoxWidth = 360;
+  const logoBoxHeight = 130;
+  const logoX = pageLeft + (pageWidth - logoBoxWidth) / 2;
+  const logoTop = 16;
   if (logoPath) {
-    doc.image(logoPath, 246, 24, { fit: [105, 54], align: 'center' });
+    doc.image(logoPath, logoX, logoTop, { fit: [logoBoxWidth, logoBoxHeight], align: 'center' });
   }
 
-  doc.font('Helvetica').fontSize(22).text('UGANDA', pageLeft, 82, { width: pageWidth, align: 'center' });
-  doc.fontSize(21).text('PRINTING AND PUBLISHING', pageLeft, 109, { width: pageWidth, align: 'center' });
-  doc.fontSize(21).text('CORPORATION', pageLeft, 135, { width: pageWidth, align: 'center' });
-  doc.fontSize(8.8).text(
-    'P.O. Box 33, Entebbe, Uganda, Telephones: 0414-320639, Toll-Free: 0800111467, WhatsApp: +256783914332',
+  const contactTop = logoTop + logoBoxHeight + 4;
+  doc.font('Helvetica').fontSize(8.8).text(
+    'P.O. Box 33, Entebbe, Uganda\n' +
+    'Tel: 0326520250 | Toll-Free: 0800205520 | WhatsApp: +256 783 914 332\n' +
+    'Email: info@uppc.go.ug | Web: www.uppc.go.ug',
     pageLeft,
-    164,
-    { width: pageWidth, align: 'center' }
+    contactTop,
+    { width: pageWidth, align: 'center', lineGap: 1 }
   );
-  drawHorizontalLine(doc, pageLeft, pageRight, 181, 1.4);
 
-  doc.font('Helvetica-Bold').fontSize(18).text('QUOTATION', pageLeft, 190, { width: pageWidth, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(17).fillColor('#b41414').text(quoteNo, 456, 190, { width: 80, align: 'center' });
+  // Everything below the header hangs off this one line's position, so the
+  // rest of the layout shifts down automatically when the header grows.
+  const headerRuleY = contactTop + 40;
+  const headerShift = headerRuleY - 181;
+  drawHorizontalLine(doc, pageLeft, pageRight, headerRuleY, 1.4);
+
+  doc.font('Helvetica-Bold').fontSize(18).text('QUOTATION', pageLeft, 190 + headerShift, { width: pageWidth, align: 'center' });
+  doc.font('Helvetica-Bold').fontSize(17).fillColor('#b41414').text(quoteNo, 456, 190 + headerShift, { width: 80, align: 'center' });
   doc.fillColor('black');
-  drawHorizontalLine(doc, pageLeft, pageRight, 215, 1.4);
+  drawHorizontalLine(doc, pageLeft, pageRight, 215 + headerShift, 1.4);
 
-  drawUnderlineField(doc, 'To:', quotation.client_name, pageLeft, 230, 24, 300);
-  drawUnderlineField(doc, 'Enquiry Ref:', '', 350, 230, 70, 130);
-  drawUnderlineField(doc, '', quotation.client_address || '', pageLeft + 24, 254, 0, 300);
-  drawUnderlineField(doc, '', quotation.client_contact || '', 350, 254, 0, 200);
-  drawUnderlineField(doc, '', quotation.client_email || '', pageLeft + 24, 278, 0, 300);
-  drawHorizontalLine(doc, pageLeft, pageRight, 304, 1.4);
+  drawUnderlineField(doc, 'To:', quotation.client_name, pageLeft, 230 + headerShift, 24, 300);
+  drawUnderlineField(doc, 'Enquiry Ref:', '', 350, 230 + headerShift, 70, 130);
+  drawUnderlineField(doc, '', quotation.client_address || '', pageLeft + 24, 254 + headerShift, 0, 300);
+  drawUnderlineField(doc, '', quotation.client_contact || '', 350, 254 + headerShift, 0, 200);
+  drawUnderlineField(doc, '', quotation.client_email || '', pageLeft + 24, 278 + headerShift, 0, 300);
+  drawHorizontalLine(doc, pageLeft, pageRight, 304 + headerShift, 1.4);
 
-  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, 315);
-  drawUnderlineField(doc, 'Date:', quoteDate, 392, 315, 34, 125);
-  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, 337);
+  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, 315 + headerShift);
+  drawUnderlineField(doc, 'Date:', quoteDate, 392, 315 + headerShift, 34, 125);
+  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, 337 + headerShift);
 
-  const tableTop = 358;
+  const tableTop = 358 + headerShift;
   const tableLeft = pageLeft;
   const colWidths = [105, 215, 80, 125];
   const rowHeight = 23;
@@ -283,14 +308,32 @@ function drawQuotationPdf(doc, quotationId, data) {
 
   const footerTop = totalsTop + 118;
   doc.font('Helvetica').fontSize(11);
+
+  // Blank space between the label and the fixed trailing phrase is where the
+  // entered delivery timeframe (e.g. "2 weeks") goes, same as the original
+  // hand-filled layout.
   doc.text('Delivery', pageLeft, footerTop);
+  if (quotation.delivery_text) {
+    doc.fontSize(10).text(quotation.delivery_text, pageLeft + 52, footerTop + 1, { width: 300, height: 13, ellipsis: true });
+  }
+  doc.fontSize(11).text('from receipt of order at factory', pageLeft + 364, footerTop);
+
+  doc.fontSize(11).text('Terms', pageLeft, footerTop + 28);
+  if (quotation.terms_text) {
+    doc.fontSize(10).text(quotation.terms_text, pageLeft + 48, footerTop + 29, { width: pageRight - pageLeft - 48, height: 13, ellipsis: true });
+  }
+
+  doc.fontSize(11).text('Special conditions', pageLeft, footerTop + 56);
+  if (quotation.special_conditions_text) {
+    doc.fontSize(10).text(quotation.special_conditions_text, pageLeft + 111, footerTop + 57, { width: pageRight - pageLeft - 111, height: 13, ellipsis: true });
+  }
+
   drawHorizontalLine(doc, pageLeft + 48, pageLeft + 358, footerTop + 14, 0.8);
-  doc.text('from receipt of order at factory', pageLeft + 364, footerTop);
-  doc.text('Terms', pageLeft, footerTop + 28);
   drawHorizontalLine(doc, pageLeft + 48, pageRight, footerTop + 42, 0.8);
-  doc.text('Special conditions', pageLeft, footerTop + 56);
   drawHorizontalLine(doc, pageLeft + 111, pageRight, footerTop + 70, 0.8);
   drawHorizontalLine(doc, pageLeft, pageRight, footerTop + 94, 0.8);
+
+  doc.font('Helvetica').fontSize(11);
   doc.text('Yours faithfully,', pageLeft, footerTop + 118);
   doc.text('for UGANDA PRINTING AND PUBLISHING CORPORATION', pageLeft, footerTop + 143);
 }

@@ -26,6 +26,8 @@ MIGRATIONS=(
   "add_fixed_pricing.sql"
   "add_quotations.sql"
   "add_quotation_name.sql"
+  "add_vat_option.sql"
+  "add_quotation_text_fields.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do

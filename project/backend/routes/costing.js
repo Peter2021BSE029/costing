@@ -5,6 +5,13 @@ const pool = require('../server').pool;
 const { authenticateToken } = require('./auth');
 const { toNumber } = require('../lib/quotationPdf');
 
+// A fixed job's price is either exclusive of VAT (18% added on top) or
+// inclusive (VAT already baked into the entered price). Anything else falls
+// back to the historical default.
+function normalizeVatOption(value) {
+  return value === 'inclusive' ? 'inclusive' : 'exclusive';
+}
+
 // Resolves the client to bill and the quotation to attach a new item to.
 // If quotation_id is supplied, the item joins that existing quotation (client is
 // taken from the quotation, ignoring any client/client_id also sent). Otherwise a
@@ -348,9 +355,9 @@ router.post('/quick', authenticateToken, async (req, res) => {
     const jobIds = [];
     for (const item of items) {
       const jobResult = await clientConn.query(
-        `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price)
-         VALUES ($1, $2, $3, $4, $5, 'fixed', $6) RETURNING id`,
-        [clientId, quotationId, item.name, item.description || '', item.quantity, toNumber(item.fixed_price)]
+        `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price, vat_option)
+         VALUES ($1, $2, $3, $4, $5, 'fixed', $6, $7) RETURNING id`,
+        [clientId, quotationId, item.name, item.description || '', item.quantity, toNumber(item.fixed_price), normalizeVatOption(item.vat_option)]
       );
       jobIds.push(jobResult.rows[0].id);
     }
@@ -381,9 +388,9 @@ router.put('/quick/:jobId', authenticateToken, async (req, res) => {
 
   try {
     const result = await pool.query(
-      `UPDATE jobs SET name = $1, description = $2, quantity = $3, fixed_price = $4, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5 AND pricing_mode = 'fixed' RETURNING id`,
-      [job.name, job.description || '', job.quantity, toNumber(job.fixed_price), jobId]
+      `UPDATE jobs SET name = $1, description = $2, quantity = $3, fixed_price = $4, vat_option = $5, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6 AND pricing_mode = 'fixed' RETURNING id`,
+      [job.name, job.description || '', job.quantity, toNumber(job.fixed_price), normalizeVatOption(job.vat_option), jobId]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Fixed-price job not found' });

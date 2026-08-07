@@ -48,6 +48,9 @@ CREATE TABLE quotations (
   id SERIAL PRIMARY KEY,
   client_id INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
   name VARCHAR(150),
+  delivery_text VARCHAR(300),
+  terms_text VARCHAR(300),
+  special_conditions_text VARCHAR(300),
   status VARCHAR(20) DEFAULT 'draft',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -72,6 +75,7 @@ CREATE TABLE jobs (
   total_cost DECIMAL(12,2) DEFAULT 0,
   pricing_mode VARCHAR(20) NOT NULL DEFAULT 'calculated',
   fixed_price DECIMAL(14,2),
+  vat_option VARCHAR(10) NOT NULL DEFAULT 'exclusive',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
