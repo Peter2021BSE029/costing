@@ -104,7 +104,7 @@
                     <th>Description</th>
                     <th>Quantity</th>
                     <th>Unit Price (UGX)</th>
-                    <th>VAT</th>
+                    <th>VAT <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Exclusive: 18% VAT is added on top of the unit price. Inclusive: the unit price already has VAT baked in, so VAT is calculated out of it instead of added again.</span></span></th>
                     <th>Line Total (UGX)</th>
                     <th>Actions</th>
                   </tr>
@@ -232,26 +232,35 @@
             </div>
             <div class="form-row single">
               <div class="form-group">
-                <label for="margin-tier">Margin Tier:</label>
+                <label for="margin-tier">Margin Tier: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Set automatically from Client Type: Government/Parastatal 15%, NGO/Dev. Partner 20%, Commercial/Private 30%, Internal/UPPC 0%. Added on top of production cost to reach the selling price.</span></span></label>
                 <span id="margin-tier-display" style="padding: 8px; display: none; border: 1px solid #ccc; border-radius: 4px; background-color: #f5f5f5;"></span>
                 <input type="hidden" id="margin-tier" name="margin-tier" required>
               </div>
             </div>
             
             <h4 style="margin-top: 30px; border-top: 1px solid #ddd; padding-top: 20px;">Job Information</h4>
-            <div class="form-row">
+            <div class="form-row single">
               <div class="form-group">
                 <label for="job-name">Job Name:</label>
                 <input type="text" id="job-name" name="job-name" required>
               </div>
-              <div class="form-group">
-                <label for="job-quantity">Quantity:</label>
-                <input type="number" id="job-quantity" name="job-quantity" min="1" required>
-              </div>
             </div>
+            <div class="form-group">
+              <label for="job-description">Description:</label>
+              <textarea id="job-description" name="job-description"></textarea>
+            </div>
+          </div>
+
+          <!-- Job Specs & Paper Section -->
+          <div class="form-section wizard-section" data-section="job-specs" style="display: none;">
+            <h3>Job Specs & Paper</h3>
             <div class="form-row">
               <div class="form-group">
-                <label for="job-page-size">Book Page Size:</label>
+                <label for="job-quantity">Quantity: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">How many finished copies to produce. Costs like plates and machine setup are spread across this quantity, so more copies usually means a lower cost per copy.</span></span></label>
+                <input type="number" id="job-quantity" name="job-quantity" min="1" required>
+              </div>
+              <div class="form-group">
+                <label for="job-page-size">Book Page Size: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">The trimmed page size of the finished job. A1 is the largest sheet size, A5 the smallest. This affects how materials and plates are calculated.</span></span></label>
                 <select id="job-page-size" name="job-page-size" required>
                   <option value="">Select size...</option>
                   <option value="A1">A1</option>
@@ -261,71 +270,23 @@
                   <option value="A5">A5</option>
                 </select>
               </div>
+            </div>
+            <div class="form-row single">
               <div class="form-group">
-                <label for="job-pages-per-copy">Pages Per Copy:</label>
+                <label for="job-pages-per-copy">Pages Per Copy: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">The total number of printed pages in one finished copy of the job.</span></span></label>
                 <input type="number" id="job-pages-per-copy" name="job-pages-per-copy" min="1" required>
               </div>
             </div>
-            <div class="form-group">
-              <label for="job-description">Description:</label>
-              <textarea id="job-description" name="job-description"></textarea>
-            </div>
-          </div>
 
-          <!-- Pre-press Section -->
-          <div class="form-section wizard-section" data-section="prepress" style="display: none;">
-            <h3>Pre-press</h3>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="design-pages">Design Pages:</label>
-                <input type="number" id="design-pages" name="design-pages" min="0" step="1" placeholder="Number of pages">
-              </div>
-              <div class="form-group">
-                <label for="design-rate">Design Rate (UGX/page):</label>
-                <input type="number" id="design-rate" name="design-rate" min="0" step="0.01" placeholder="Rate per page">
-              </div>
-              <div class="form-group">
-                <label for="design-subtotal">Design Subtotal:</label>
-                <input type="number" id="design-subtotal" name="design-subtotal" readonly>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="typesetting-pages">Typesetting Pages:</label>
-                <input type="number" id="typesetting-pages" name="typesetting-pages" min="0" step="1" placeholder="Number of pages">
-              </div>
-              <div class="form-group">
-                <label for="typesetting-rate">Typesetting Rate (UGX/page):</label>
-                <input type="number" id="typesetting-rate" name="typesetting-rate" min="0" step="0.01" placeholder="Rate per page">
-              </div>
-              <div class="form-group">
-                <label for="typesetting-subtotal">Typesetting Subtotal:</label>
-                <input type="number" id="typesetting-subtotal" name="typesetting-subtotal" readonly>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="ctp-cost">CTP / Computer To Plate Cost:</label>
-                <input type="number" id="ctp-cost" name="ctp-cost" min="0" step="0.01" placeholder="CTP cost">
-              </div>
-              <div class="form-group">
-                <label for="prepress-subtotal">Prepress Total:</label>
-                <input type="number" id="prepress-subtotal" name="prepress-subtotal" readonly>
-              </div>
-            </div>
-          </div>
-
-          <!-- Press Section (Materials & Machines) -->
-          <div class="form-section wizard-section" data-section="press" style="display: none;">
-            <h3>Press (Materials & Machines)</h3>
-            
             <!-- Paper Stock Section -->
             <div class="press-subsection">
-              <h4>Paper Stock</h4>
+              <h4>Paper Stock <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">The actual paper the job is printed on. Quantity (in sheets) is calculated live from the job's quantity, pages, stock sheet size, and print sides.</span></span></h4>
               <table class="costing-table" id="paper-materials-table">
                 <thead>
                   <tr>
                     <th>Paper</th>
+                    <th>Stock Size</th>
+                    <th>Sides</th>
                     <th>Quantity</th>
                     <th>Unit Cost</th>
                     <th>Subtotal</th>
@@ -339,7 +300,22 @@
                         <option value="">Select paper...</option>
                       </select>
                     </td>
-                    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Select paper first" required><span class="unit-hint">unit</span></div></td>
+                    <td>
+                      <select name="paper-stock-size[]">
+                        <option value="A1" selected>A1</option>
+                        <option value="A2">A2</option>
+                        <option value="A3">A3</option>
+                        <option value="A4">A4</option>
+                        <option value="A5">A5</option>
+                      </select>
+                    </td>
+                    <td>
+                      <select name="paper-print-sides[]">
+                        <option value="duplex" selected>Duplex</option>
+                        <option value="simplex">Simplex</option>
+                      </select>
+                    </td>
+                    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Auto-calculated" required><span class="unit-hint">unit</span></div></td>
                     <td><input type="hidden" name="paper-material-cost[]"><span class="amount-display" data-display-for="paper-material-cost[]">0.00</span></td>
                     <td><input type="hidden" name="paper-material-subtotal[]"><span class="amount-display" data-display-for="paper-material-subtotal[]">0.00</span></td>
                     <td><button type="button" class="remove-paper-material" style="display: none;" title="Remove paper" aria-label="Remove paper"><i class="bi bi-trash3"></i></button></td>
@@ -347,40 +323,73 @@
                 </tbody>
               </table>
               <button type="button" id="add-paper" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Paper</button>
+              <div class="form-row single" style="margin-top: 15px;">
+                <div class="form-group">
+                  <label for="paper-wastage-percent">Paper Wastage %: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Extra sheets ordered on top of the calculated quantity, to cover spoilage. Pads the sheet count itself — separate from the overall cost-based Wastage % in Additional Costs. Defaults to 5%.</span></span></label>
+                  <input type="number" id="paper-wastage-percent" name="paper-wastage-percent" min="0" step="0.1" value="5">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pre-press Section -->
+          <div class="form-section wizard-section" data-section="prepress" style="display: none;">
+            <h3>Pre-press</h3>
+
+            <div class="section-toggle">
+              <label class="toggle-label"><input type="checkbox" id="requires-design"> This job requires Design</label>
+            </div>
+            <div id="design-fields" class="gated-section" style="display: none;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="design-pages">Design Pages:</label>
+                  <input type="number" id="design-pages" name="design-pages" min="0" step="1" placeholder="Number of pages">
+                </div>
+                <div class="form-group">
+                  <label for="design-rate">Design Rate (UGX/page): <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of creating the visual layout/artwork for one page. Leave at 0 if the client supplies print-ready artwork.</span></span></label>
+                  <input type="number" id="design-rate" name="design-rate" min="0" step="0.01" placeholder="Rate per page">
+                </div>
+                <div class="form-group">
+                  <label for="design-subtotal">Design Subtotal:</label>
+                  <input type="number" id="design-subtotal" name="design-subtotal" readonly>
+                </div>
+              </div>
             </div>
 
-            <!-- Materials Section -->
-            <div class="press-subsection">
-              <h4>Materials</h4>
-              <table class="costing-table" id="materials-table">
-                <thead>
-                  <tr>
-                    <th>Material</th>
-                    <th>Quantity</th>
-                    <th>Unit Cost</th>
-                    <th>Subtotal</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="materials-list">
-                  <tr class="material-item">
-                    <td>
-                      <select name="material-id[]" required>
-                        <option value="">Select material...</option>
-                      </select>
-                    </td>
-                    <td><div class="quantity-with-unit"><input type="number" name="material-quantity[]" min="0.01" step="0.01" placeholder="Select material first" required><span class="unit-hint">unit</span></div></td>
-                    <td><input type="hidden" name="material-cost[]"><span class="amount-display" data-display-for="material-cost[]">0.00</span></td>
-                    <td><input type="hidden" name="material-subtotal[]"><span class="amount-display" data-display-for="material-subtotal[]">0.00</span></td>
-                    <td><button type="button" class="remove-material" style="display: none;" title="Remove material" aria-label="Remove material"><i class="bi bi-trash3"></i></button></td>
-                  </tr>
-                </tbody>
-              </table>
-              <button type="button" id="add-material" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Material</button>
+            <div class="section-toggle">
+              <label class="toggle-label"><input type="checkbox" id="requires-typesetting"> This job requires Typesetting</label>
+            </div>
+            <div id="typesetting-fields" class="gated-section" style="display: none;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="typesetting-pages">Typesetting Pages:</label>
+                  <input type="number" id="typesetting-pages" name="typesetting-pages" min="0" step="1" placeholder="Number of pages">
+                </div>
+                <div class="form-group">
+                  <label for="typesetting-rate">Typesetting Rate (UGX/page): <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of arranging text and images onto the page ready for print, per page. Often done alongside design.</span></span></label>
+                  <input type="number" id="typesetting-rate" name="typesetting-rate" min="0" step="0.01" placeholder="Rate per page">
+                </div>
+                <div class="form-group">
+                  <label for="typesetting-subtotal">Typesetting Subtotal:</label>
+                  <input type="number" id="typesetting-subtotal" name="typesetting-subtotal" readonly>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-toggle">
+              <label class="toggle-label"><input type="checkbox" id="requires-plates-ctp"> This job requires Plates / CTP</label>
+            </div>
+            <div id="plates-ctp-fields" class="gated-section" style="display: none;">
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="ctp-cost">CTP / Computer To Plate Cost: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">CTP (Computer-to-Plate): the cost of outputting the printing plates directly from digital files, ready to mount on the press.</span></span></label>
+                  <input type="number" id="ctp-cost" name="ctp-cost" min="0" step="0.01" placeholder="CTP cost">
+                </div>
+              </div>
 
               <!-- Plates Section (Mini) -->
               <div class="form-section-mini">
-                <h5>Plates</h5>
+                <h5>Plates <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Number of printing plates needed per sheet size. Each colour on each press form needs its own plate — more colours or pages usually mean more plates.</span></span></h5>
                 <table class="costing-table" id="plates-table">
                   <thead>
                     <tr>
@@ -414,9 +423,51 @@
               </div>
             </div>
 
+            <div class="form-row">
+              <div class="form-group">
+                <label for="prepress-subtotal">Prepress Total:</label>
+                <input type="number" id="prepress-subtotal" name="prepress-subtotal" readonly>
+              </div>
+            </div>
+          </div>
+
+          <!-- Press Section (Materials & Machines) -->
+          <div class="form-section wizard-section" data-section="press" style="display: none;">
+            <h3>Press (Materials & Machines)</h3>
+
+            <!-- Materials Section -->
+            <div class="press-subsection">
+              <h4>Materials <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Other materials used in production besides paper — e.g. ink, glue, binding wire, cover board.</span></span></h4>
+              <table class="costing-table" id="materials-table">
+                <thead>
+                  <tr>
+                    <th>Material</th>
+                    <th>Quantity</th>
+                    <th>Unit Cost</th>
+                    <th>Subtotal</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="materials-list">
+                  <tr class="material-item">
+                    <td>
+                      <select name="material-id[]" required>
+                        <option value="">Select material...</option>
+                      </select>
+                    </td>
+                    <td><div class="quantity-with-unit"><input type="number" name="material-quantity[]" min="0.01" step="0.01" placeholder="Select material first" required><span class="unit-hint">unit</span></div></td>
+                    <td><input type="hidden" name="material-cost[]"><span class="amount-display" data-display-for="material-cost[]">0.00</span></td>
+                    <td><input type="hidden" name="material-subtotal[]"><span class="amount-display" data-display-for="material-subtotal[]">0.00</span></td>
+                    <td><button type="button" class="remove-material" style="display: none;" title="Remove material" aria-label="Remove material"><i class="bi bi-trash3"></i></button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <button type="button" id="add-material" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Material</button>
+            </div>
+
             <!-- Machines Section -->
             <div class="press-subsection" style="margin-top: 40px; border-top: 1px solid #ddd; padding-top: 20px;">
-              <h4>Machines</h4>
+              <h4>Machines <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">The press run for this job. Impressions = how many times a sheet passes through the press. Setup % adds the machine makeready cost (getting the press ready before the run) on top of the running cost.</span></span></h4>
               <table class="costing-table" id="machines-table">
                 <thead>
                   <tr>
@@ -453,7 +504,7 @@
 
             <!-- Binding Section -->
             <div class="post-press-subsection">
-              <h4>Binding</h4>
+              <h4>Binding <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">How the finished pages are bound together (e.g. saddle stitch, perfect bound, spiral). Pick a method and its cost calculates automatically, or use the calculator.</span></span></h4>
               <table class="costing-table postpress-table">
                 <thead>
                   <tr>
@@ -479,7 +530,7 @@
 
             <!-- Special Processes Section -->
             <div class="post-press-subsection" style="margin-top: 40px; border-top: 1px solid #ddd; padding-top: 20px;">
-              <h4>Special Processes</h4>
+              <h4>Special Processes <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Extra finishing steps after printing, e.g. lamination, folding, die-cutting, or drilling.</span></span></h4>
               <table class="costing-table postpress-table">
                 <thead>
                   <tr>
@@ -612,7 +663,7 @@
             <h3>Additional Costs</h3>
             <div class="form-row">
               <div class="form-group">
-                <label for="wastage-percent">Wastage %:</label>
+                <label for="wastage-percent">Wastage %: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Extra material ordered to cover paper spoiled during press setup and printing, as a percentage of material cost.</span></span></label>
                 <input type="number" id="wastage-percent" name="wastage-percent" min="0" step="0.1" value="5">
               </div>
               <div class="form-group">
@@ -626,19 +677,19 @@
                 <input type="text" id="subcontract-description" name="subcontract-description" placeholder="e.g., Binding outsourced">
               </div>
               <div class="form-group">
-                <label for="subcontract-cost">Subcontract Cost:</label>
+                <label for="subcontract-cost">Subcontract Cost: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of any part of this job done by an outside supplier instead of in-house.</span></span></label>
                 <input type="number" id="subcontract-cost" name="subcontract-cost" min="0" step="0.01">
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="commission-cost">Commission Cost:</label>
+                <label for="commission-cost">Commission Cost: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">A flat amount paid for securing this job (e.g. an agent's fee), added on top of the selling price.</span></span></label>
                 <input type="number" id="commission-cost" name="commission-cost" min="0" step="0.01">
               </div>
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="storage-percent">Storage/Warehouse %:</label>
+                <label for="storage-percent">Storage/Warehouse %: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of storing the finished job before it's collected or delivered, as a percentage of production cost.</span></span></label>
                 <input type="number" id="storage-percent" name="storage-percent" min="0" step="0.1" value="5">
               </div>
               <div class="form-group">
@@ -648,7 +699,7 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="transport-percent">Transport %:</label>
+                <label for="transport-percent">Transport %: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of delivering the finished job to the client, as a percentage of production cost.</span></span></label>
                 <input type="number" id="transport-percent" name="transport-percent" min="0" step="0.1" value="10">
               </div>
               <div class="form-group">
@@ -658,7 +709,7 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label for="overhead-percent">Overhead %:</label>
+                <label for="overhead-percent">Overhead %: <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">General running costs (rent, utilities, admin) shared across this job, as a percentage of production cost.</span></span></label>
                 <input type="number" id="overhead-percent" name="overhead-percent" min="0" step="0.1" value="10">
               </div>
               <div class="form-group">
@@ -674,27 +725,27 @@
             <table class="summary-table">
               <tbody>
                 <tr class="summary-section-row"><th colspan="3">Materials</th></tr>
-                <tr><td>Materials Subtotal</td><td></td><td id="materials-total">0</td></tr>
-                <tr><td>Plates Subtotal</td><td></td><td id="plates-total">0</td></tr>
+                <tr><td>Materials Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Paper and other materials used, at cost.</span></span></td><td></td><td id="materials-total">0</td></tr>
+                <tr><td>Plates Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of the printing plates required.</span></span></td><td></td><td id="plates-total">0</td></tr>
                 <tr class="summary-section-row"><th colspan="3">Pre Press</th></tr>
-                <tr><td>Design Subtotal</td><td></td><td id="design-total">0</td></tr>
-                <tr><td>Typesetting Subtotal</td><td></td><td id="typesetting-total">0</td></tr>
-                <tr><td>Wastage Subtotal</td><td></td><td id="wastage-total">0</td></tr>
-                <tr><td>Subcontract Subtotal</td><td></td><td id="subcontract-total">0</td></tr>
+                <tr><td>Design Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Design pages × design rate.</span></span></td><td></td><td id="design-total">0</td></tr>
+                <tr><td>Typesetting Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Typesetting pages × typesetting rate.</span></span></td><td></td><td id="typesetting-total">0</td></tr>
+                <tr><td>Wastage Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Wastage % applied to material cost.</span></span></td><td></td><td id="wastage-total">0</td></tr>
+                <tr><td>Subcontract Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of any work outsourced to another supplier.</span></span></td><td></td><td id="subcontract-total">0</td></tr>
                 <tr class="summary-section-row"><th colspan="3">Press</th></tr>
-                <tr><td>Machines Subtotal</td><td></td><td id="machines-total">0</td></tr>
+                <tr><td>Machines Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Press running cost (impressions × cost per impression) plus machine setup.</span></span></td><td></td><td id="machines-total">0</td></tr>
                 <tr class="summary-section-row"><th colspan="3">Post Press</th></tr>
-                <tr><td>Binding Subtotal</td><td></td><td id="binding-total">0</td></tr>
-                <tr><td>Special Processes Subtotal</td><td></td><td id="processes-total">0</td></tr>
-                <tr><td>Storage Subtotal</td><td></td><td id="storage-total">0</td></tr>
-                <tr><td>Transport Subtotal</td><td></td><td id="transport-total">0</td></tr>
-                <tr><td>Overhead</td><td></td><td id="overhead-total">0</td></tr>
-                <tr class="summary-total-row"><td>Total Cost of Production</td><td></td><td id="production-total">0</td></tr>
-                <tr><td>Commission</td><td></td><td id="commission-total">0</td></tr>
-                <tr><td>Markup</td><td></td><td id="markup-amount">0</td></tr>
-                <tr><td>Selling Price</td><td></td><td id="selling-price">0</td></tr>
-                <tr><td>VAT (18%)</td><td></td><td id="vat-amount">0</td></tr>
-                <tr class="summary-final-row"><td>Invoice Total</td><td></td><td id="invoice-total">0</td></tr>
+                <tr><td>Binding Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of binding the finished copies.</span></span></td><td></td><td id="binding-total">0</td></tr>
+                <tr><td>Special Processes Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Cost of extra finishing steps like lamination or folding.</span></span></td><td></td><td id="processes-total">0</td></tr>
+                <tr><td>Storage Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Storage % applied to production cost.</span></span></td><td></td><td id="storage-total">0</td></tr>
+                <tr><td>Transport Subtotal <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Transport % applied to production cost.</span></span></td><td></td><td id="transport-total">0</td></tr>
+                <tr><td>Overhead <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Overhead % applied to production cost.</span></span></td><td></td><td id="overhead-total">0</td></tr>
+                <tr class="summary-total-row"><td>Total Cost of Production <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Everything above added together — what it actually costs UPPC to produce this job, before margin or tax.</span></span></td><td></td><td id="production-total">0</td></tr>
+                <tr><td>Commission <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Flat commission amount entered in Additional Costs.</span></span></td><td></td><td id="commission-total">0</td></tr>
+                <tr><td>Markup <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">The client's margin tier percentage applied to production cost — UPPC's earnings on the job before tax.</span></span></td><td></td><td id="markup-amount">0</td></tr>
+                <tr><td>Selling Price <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Production cost + commission + markup. What the client is charged before VAT.</span></span></td><td></td><td id="selling-price">0</td></tr>
+                <tr><td>VAT (18%) <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Value Added Tax, added on top of the selling price at the standard 18% rate.</span></span></td><td></td><td id="vat-amount">0</td></tr>
+                <tr class="summary-final-row"><td>Invoice Total <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Selling Price + VAT — the final amount the client pays.</span></span></td><td></td><td id="invoice-total">0</td></tr>
               </tbody>
             </table>
           </div>

@@ -2,8 +2,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
+const PDFDocument = require('pdfkit');
 const { authenticateToken } = require('./auth');
-const { toNumber } = require('../lib/quotationPdf');
+const { toNumber, getJobCostSheetData } = require('../lib/quotationPdf');
+const { drawCostSheetPdf } = require('../lib/costSheetPdf');
 
 // A fixed job's price is either exclusive of VAT (18% added on top) or
 // inclusive (VAT already baked into the entered price). Anything else falls
@@ -38,18 +40,35 @@ async function resolveQuotationAndClient(conn, { quotation_id, client_id, client
 // Inserts a job's cost-breakdown rows (materials, plates, machines, processes, bindings,
 // additional costs). Shared by job creation and job update (which deletes the old rows first).
 async function insertJobLineItems(conn, jobId, { materials = [], plates = [], machines = [], processes = [], binding, additional_costs }) {
-  // Materials
+  // Materials (paper lines may carry stock_size/print_sides if those columns exist)
+  const optionalMaterialColumns = ['stock_size', 'print_sides'];
+  const availableMaterialColumns = (await conn.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = 'job_materials' AND column_name = ANY($1::text[])`,
+    [optionalMaterialColumns]
+  )).rows.map(row => row.column_name);
+
   for (const material of materials) {
+    const columns = ['job_id', 'material_id', 'quantity', 'unit_cost'];
+    const values = [jobId, material.material_id, material.quantity, material.unit_cost];
+    for (const column of optionalMaterialColumns) {
+      if (availableMaterialColumns.includes(column) && material[column] !== undefined) {
+        columns.push(column);
+        values.push(material[column]);
+      }
+    }
+    const placeholders = columns.map((_, index) => `$${index + 1}`).join(', ');
     await conn.query(
-      'INSERT INTO job_materials (job_id, material_id, quantity, unit_cost) VALUES ($1, $2, $3, $4)',
-      [jobId, material.material_id, material.quantity, material.unit_cost]
+      `INSERT INTO job_materials (${columns.join(', ')}) VALUES (${placeholders})`,
+      values
     );
   }
 
-  // Plates as materials
+  // Plates as materials. Filtering by category (not just name LIKE '%A3%')
+  // avoids matching an unrelated material whose name happens to contain the
+  // plate size, e.g. a paper stock named "A3 Paper 80gsm".
   for (const plate of plates) {
     const plateMaterial = await conn.query(
-      'SELECT id FROM materials WHERE name LIKE $1',
+      "SELECT id FROM materials WHERE name LIKE $1 AND LOWER(category) = 'plates'",
       [`%${plate.size}%`]
     );
     if (plateMaterial.rows.length > 0) {
@@ -114,7 +133,7 @@ async function insertJobLineItems(conn, jobId, { materials = [], plates = [], ma
       additional_costs.transport_percent || 10,
       additional_costs.transport_cost || 0
     ];
-    const optionalAdditionalColumns = ['ctp_cost', 'commission_cost', 'overhead_percent', 'overhead_cost', 'special_processes_total'];
+    const optionalAdditionalColumns = ['ctp_cost', 'commission_cost', 'overhead_percent', 'overhead_cost', 'special_processes_total', 'paper_wastage_percent'];
 
     const availableAdditionalColumns = (await conn.query(
       `SELECT column_name FROM information_schema.columns WHERE table_name = 'job_additional_costs' AND column_name = ANY($1::text[])`,
@@ -398,6 +417,29 @@ router.put('/quick/:jobId', authenticateToken, async (req, res) => {
     res.json({ job_id: result.rows[0].id, message: 'Fixed-price job updated successfully' });
   } catch (err) {
     console.error('[COSTING] Quick job update failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Internal cost breakdown PDF for one job — how the price was actually
+// reached, unlike the client-facing quotation which only shows the total.
+router.get('/:jobId/cost-sheet', authenticateToken, async (req, res) => {
+  const { jobId } = req.params;
+
+  try {
+    const data = await getJobCostSheetData(pool, jobId);
+    if (!data) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const doc = new PDFDocument({ size: 'A4', margin: 0 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=cost_sheet_job_${jobId}.pdf`);
+    doc.pipe(res);
+    drawCostSheetPdf(doc, data);
+    doc.end();
+  } catch (err) {
+    console.error('[COSTING] Cost sheet generation failed:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

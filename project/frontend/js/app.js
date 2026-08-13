@@ -207,7 +207,7 @@ console.log('Wizard elements found:', {
 
 // Wizard state
 let currentWizardStep = 0;
-const wizardSections = ['client-job', 'prepress', 'press', 'post-press', 'additional-costs', 'summary'];
+const wizardSections = ['client-job', 'job-specs', 'prepress', 'press', 'post-press', 'additional-costs', 'summary'];
 let plateStock = { A1: 0, A2: 0, A3: 0 };
 
 // Global data variables
@@ -221,6 +221,7 @@ let pendingQuotationId = null;
 let editingJobId = null;
 const sectionNames = {
   'client-job': 'Client & Job Information',
+  'job-specs': 'Job Specs & Paper',
   'prepress': 'Pre-press',
   'press': 'Press (Materials & Machines)',
   'post-press': 'Post-press (Binding & Special Processes)',
@@ -373,18 +374,45 @@ function collectSectionData(section) {
         clientEmail: formData.get('client-email'),
         marginTier: formData.get('margin-tier'),
         jobName: formData.get('job-name'),
+        jobDescription: formData.get('job-description')
+      };
+    case 'job-specs': {
+      const paperMaterials = [];
+      const paperMaterialIds = formData.getAll('paper-material-id[]');
+      const paperMaterialQuantities = formData.getAll('paper-material-quantity[]');
+      const paperStockSizes = formData.getAll('paper-stock-size[]');
+      const paperPrintSides = formData.getAll('paper-print-sides[]');
+      paperMaterialIds.forEach((id, index) => {
+        if (id) {
+          paperMaterials.push({
+            id: id,
+            quantity: paperMaterialQuantities[index] || 0,
+            stockSize: paperStockSizes[index] || 'A1',
+            sides: paperPrintSides[index] || 'duplex'
+          });
+        }
+      });
+      return {
         jobQuantity: formData.get('job-quantity'),
         jobPageSize: formData.get('job-page-size'),
         jobPagesPerCopy: formData.get('job-pages-per-copy'),
-        jobDescription: formData.get('job-description')
+        paperMaterials,
+        paperWastagePercent: formData.get('paper-wastage-percent')
       };
+    }
     case 'prepress':
       return {
+        requiresDesign: document.getElementById('requires-design')?.checked || false,
         designPages: formData.get('design-pages'),
         designRate: formData.get('design-rate'),
+        requiresTypesetting: document.getElementById('requires-typesetting')?.checked || false,
         typesettingPages: formData.get('typesetting-pages'),
         typesettingRate: formData.get('typesetting-rate'),
-        ctpCost: formData.get('ctp-cost')
+        requiresPlatesCtp: document.getElementById('requires-plates-ctp')?.checked || false,
+        ctpCost: formData.get('ctp-cost'),
+        platesA1Cost: formData.get('plates-a1-cost'),
+        platesA2Cost: formData.get('plates-a2-cost'),
+        platesA3Cost: formData.get('plates-a3-cost')
       };
     case 'press':
       const materials = [];
@@ -395,17 +423,6 @@ function collectSectionData(section) {
           materials.push({
             id: id,
             quantity: materialQuantities[index] || 0
-          });
-        }
-      });
-      const paperMaterials = [];
-      const paperMaterialIds = formData.getAll('paper-material-id[]');
-      const paperMaterialQuantities = formData.getAll('paper-material-quantity[]');
-      paperMaterialIds.forEach((id, index) => {
-        if (id) {
-          paperMaterials.push({
-            id: id,
-            quantity: paperMaterialQuantities[index] || 0
           });
         }
       });
@@ -423,12 +440,8 @@ function collectSectionData(section) {
         }
       });
       return {
-        paperMaterials,
         materials,
-        machines,
-        platesA1Cost: formData.get('plates-a1-cost'),
-        platesA2Cost: formData.get('plates-a2-cost'),
-        platesA3Cost: formData.get('plates-a3-cost')
+        machines
       };
     case 'post-press':
       const bindings = [];
@@ -483,24 +496,14 @@ function populateSectionData(section, data) {
       setMarginTierFromClientType(data.clientType);
 
       if (data.jobName) document.getElementById('job-name').value = data.jobName;
+      if (data.jobDescription) document.getElementById('job-description').value = data.jobDescription;
+      break;
+    case 'job-specs': {
       if (data.jobQuantity) document.getElementById('job-quantity').value = data.jobQuantity;
       if (data.jobPageSize) document.getElementById('job-page-size').value = data.jobPageSize;
       if (data.jobPagesPerCopy) document.getElementById('job-pages-per-copy').value = data.jobPagesPerCopy;
-      if (data.jobDescription) document.getElementById('job-description').value = data.jobDescription;
-      updatePlateSummary();
-      break;
-    case 'prepress':
-      if (data.designPages) document.getElementById('design-pages').value = data.designPages;
-      if (data.designRate) document.getElementById('design-rate').value = data.designRate;
-      if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
-      if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
-      if (data.ctpCost) document.getElementById('ctp-cost').value = data.ctpCost;
-      updateDesignSubtotal();
-      updateTypesettingSubtotal();
-      updatePrepressTotal();
-      break;
-    case 'press':
-      // Handle paper stock materials first
+      if (data.paperWastagePercent) document.getElementById('paper-wastage-percent').value = data.paperWastagePercent;
+
       resetPaperMaterials();
       if (data.paperMaterials && data.paperMaterials.length > 0) {
         data.paperMaterials.forEach((material, index) => {
@@ -508,16 +511,40 @@ function populateSectionData(section, data) {
           const row = paperMaterialsList.querySelectorAll('.paper-material-item')[index];
           if (row) {
             const select = row.querySelector('select[name="paper-material-id[]"]');
+            const stockSizeSelect = row.querySelector('select[name="paper-stock-size[]"]');
+            const sidesSelect = row.querySelector('select[name="paper-print-sides[]"]');
             const quantityInput = row.querySelector('input[name="paper-material-quantity[]"]');
             if (select) select.value = material.id;
+            if (stockSizeSelect) stockSizeSelect.value = material.stockSize || 'A1';
+            if (sidesSelect) sidesSelect.value = material.sides || 'duplex';
             if (quantityInput) quantityInput.value = material.quantity;
-            updatePaperMaterialSelection(select);
             updateMaterialCost(select);
-            updateMaterialSubtotal(quantityInput);
           }
         });
       }
-
+      updatePlateSummary();
+      updatePaperQuantities();
+      break;
+    }
+    case 'prepress':
+      document.getElementById('requires-design').checked = !!data.requiresDesign;
+      if (data.designPages) document.getElementById('design-pages').value = data.designPages;
+      if (data.designRate) document.getElementById('design-rate').value = data.designRate;
+      document.getElementById('requires-typesetting').checked = !!data.requiresTypesetting;
+      if (data.typesettingPages) document.getElementById('typesetting-pages').value = data.typesettingPages;
+      if (data.typesettingRate) document.getElementById('typesetting-rate').value = data.typesettingRate;
+      document.getElementById('requires-plates-ctp').checked = !!data.requiresPlatesCtp;
+      if (data.ctpCost) document.getElementById('ctp-cost').value = data.ctpCost;
+      if (data.platesA1Cost) document.getElementById('plates-a1-cost').value = data.platesA1Cost;
+      if (data.platesA2Cost) document.getElementById('plates-a2-cost').value = data.platesA2Cost;
+      if (data.platesA3Cost) document.getElementById('plates-a3-cost').value = data.platesA3Cost;
+      applyGatedSectionVisibility();
+      updateDesignSubtotal();
+      updateTypesettingSubtotal();
+      updatePrepressTotal();
+      updatePlatesCostSummary();
+      break;
+    case 'press':
       // Handle general materials
       resetMaterials();
       if (data.materials && data.materials.length > 0) {
@@ -534,10 +561,6 @@ function populateSectionData(section, data) {
           }
         });
       }
-      if (data.platesA1Cost) document.getElementById('plates-a1-cost').value = data.platesA1Cost;
-      if (data.platesA2Cost) document.getElementById('plates-a2-cost').value = data.platesA2Cost;
-      if (data.platesA3Cost) document.getElementById('plates-a3-cost').value = data.platesA3Cost;
-      updatePlatesCostSummary();
 
       // Clear existing machines
       resetMachines();
@@ -626,6 +649,7 @@ function collectAllData() {
 
 function buildCostingDataFromDraft(allData) {
   const clientJobData = allData['client-job'] || {};
+  const jobSpecsData = allData['job-specs'] || {};
   const prepressData = allData.prepress || {};
   const pressData = allData.press || {};
   const postPressData = allData['post-press'] || {};
@@ -633,14 +657,16 @@ function buildCostingDataFromDraft(allData) {
 
   // Build materials array
   const materialsArray = [];
-  if (pressData.paperMaterials) {
-    pressData.paperMaterials.forEach(mat => {
+  if (jobSpecsData.paperMaterials) {
+    jobSpecsData.paperMaterials.forEach(mat => {
       const material = materials.find(m => m.id == mat.id);
       if (material) {
         materialsArray.push({
           material_id: parseInt(mat.id),
           quantity: parseFloat(mat.quantity || 0),
-          unit_cost: material.unit_cost
+          unit_cost: material.unit_cost,
+          stock_size: mat.stockSize || 'A1',
+          print_sides: mat.sides || 'duplex'
         });
       }
     });
@@ -679,22 +705,31 @@ function buildCostingDataFromDraft(allData) {
     });
   }
 
-  // Calculate plate requirements
-  const pageSize = clientJobData.jobPageSize;
-  const pagesPerCopy = parseInt(clientJobData.jobPagesPerCopy || 0);
-  const plateResults = calculatePlateRequirements(pagesPerCopy, pageSize);
+  // Calculate plate requirements (only relevant if this job requires plates/CTP)
+  const pageSize = jobSpecsData.jobPageSize;
+  const pagesPerCopy = parseInt(jobSpecsData.jobPagesPerCopy || 0);
+  const requiresPlatesCtp = !!prepressData.requiresPlatesCtp;
+  const plateResults = requiresPlatesCtp
+    ? calculatePlateRequirements(pagesPerCopy, pageSize)
+    : { plates: { A1: 0, A2: 0, A3: 0 }, totalPlates: 0, stockSheets: 0 };
   const materialTotal = materialsArray.reduce((sum, material) => sum + (material.quantity * material.unit_cost), 0);
-  const platesTotal = (plateResults.plates.A1 * parseFloat(pressData.platesA1Cost || 0))
-    + (plateResults.plates.A2 * parseFloat(pressData.platesA2Cost || 0))
-    + (plateResults.plates.A3 * parseFloat(pressData.platesA3Cost || 0));
+  const platesTotal = requiresPlatesCtp
+    ? (plateResults.plates.A1 * parseFloat(prepressData.platesA1Cost || 0))
+      + (plateResults.plates.A2 * parseFloat(prepressData.platesA2Cost || 0))
+      + (plateResults.plates.A3 * parseFloat(prepressData.platesA3Cost || 0))
+    : 0;
   const machineTotal = machinesArray.reduce((sum, machine) => {
     return sum + (machine.impressions * machine.cost_per_impression) + machine.setup_cost;
   }, 0);
   const bindingTotal = (postPressData.bindings || []).reduce((sum, binding) => sum + parseFloat(binding.cost || 0), 0);
   const specialProcessesTotal = (postPressData.specialProcesses || []).reduce((sum, process) => sum + parseFloat(process.cost || 0), 0);
-  const designTotal = parseFloat(prepressData.designPages || 0) * parseFloat(prepressData.designRate || 0);
-  const typesettingTotal = parseFloat(prepressData.typesettingPages || 0) * parseFloat(prepressData.typesettingRate || 0);
-  const ctpCost = parseFloat(prepressData.ctpCost || 0);
+  const designTotal = prepressData.requiresDesign
+    ? parseFloat(prepressData.designPages || 0) * parseFloat(prepressData.designRate || 0)
+    : 0;
+  const typesettingTotal = prepressData.requiresTypesetting
+    ? parseFloat(prepressData.typesettingPages || 0) * parseFloat(prepressData.typesettingRate || 0)
+    : 0;
+  const ctpCost = requiresPlatesCtp ? parseFloat(prepressData.ctpCost || 0) : 0;
   const subcontractCost = parseFloat(additionalCostsData.subcontractCost || 0);
   const percentageBase = materialTotal + platesTotal + machineTotal + bindingTotal + specialProcessesTotal
     + designTotal + typesettingTotal + ctpCost + subcontractCost;
@@ -715,7 +750,7 @@ function buildCostingDataFromDraft(allData) {
     job: {
       name: clientJobData.jobName,
       description: clientJobData.jobDescription,
-      quantity: parseInt(clientJobData.jobQuantity || 0),
+      quantity: parseInt(jobSpecsData.jobQuantity || 0),
       page_size: pageSize,
       pages_per_copy: pagesPerCopy,
       stock_sheets: plateResults.stockSheets,
@@ -725,9 +760,9 @@ function buildCostingDataFromDraft(allData) {
     },
     materials: materialsArray,
     plates: [
-      { size: 'A1', quantity: plateResults.plates.A1, unit_cost: parseFloat(pressData.platesA1Cost || 0) },
-      { size: 'A2', quantity: plateResults.plates.A2, unit_cost: parseFloat(pressData.platesA2Cost || 0) },
-      { size: 'A3', quantity: plateResults.plates.A3, unit_cost: parseFloat(pressData.platesA3Cost || 0) }
+      { size: 'A1', quantity: plateResults.plates.A1, unit_cost: parseFloat(prepressData.platesA1Cost || 0) },
+      { size: 'A2', quantity: plateResults.plates.A2, unit_cost: parseFloat(prepressData.platesA2Cost || 0) },
+      { size: 'A3', quantity: plateResults.plates.A3, unit_cost: parseFloat(prepressData.platesA3Cost || 0) }
     ],
     machines: machinesArray,
     processes: [], // Empty for now
@@ -738,13 +773,14 @@ function buildCostingDataFromDraft(allData) {
       }))
     },
     additional_costs: {
-      design_pages: parseFloat(prepressData.designPages || 0),
-      design_rate: parseFloat(prepressData.designRate || 0),
-      typesetting_pages: parseFloat(prepressData.typesettingPages || 0),
-      typesetting_rate: parseFloat(prepressData.typesettingRate || 0),
+      design_pages: prepressData.requiresDesign ? parseFloat(prepressData.designPages || 0) : 0,
+      design_rate: prepressData.requiresDesign ? parseFloat(prepressData.designRate || 0) : 0,
+      typesetting_pages: prepressData.requiresTypesetting ? parseFloat(prepressData.typesettingPages || 0) : 0,
+      typesetting_rate: prepressData.requiresTypesetting ? parseFloat(prepressData.typesettingRate || 0) : 0,
       ctp_cost: ctpCost,
       wastage_percent: wastagePercent,
       wastage_cost: percentageBase * wastagePercent / 100,
+      paper_wastage_percent: parseFloat(jobSpecsData.paperWastagePercent || 5),
       subcontract_description: additionalCostsData.subcontractDescription || '',
       subcontract_cost: subcontractCost,
       commission_cost: parseFloat(additionalCostsData.commissionCost || 0),
@@ -839,6 +875,33 @@ async function generateQuotation(quotationId) {
   } catch (error) {
     console.error('Quotation generation error:', error);
     showStatus(`Error generating quotation: ${error.message}`, 'error');
+  }
+}
+
+async function downloadCostSheet(jobId) {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE}/costing/${jobId}/cost-sheet`, {
+      method: 'GET',
+      mode: 'cors',
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cost_sheet_job_${jobId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  } catch (error) {
+    console.error('Cost sheet generation error:', error);
+    showStatus(`Error generating cost sheet: ${error.message}`, 'error');
   }
 }
 
@@ -1251,11 +1314,13 @@ function populateCostSheetFromJob(job) {
   resetMachines();
   // resetProcesses();
 
+  let sawPlateMaterial = false;
   if (Array.isArray(job.materials) && job.materials.length > 0) {
     let materialIndex = 0;
     let paperIndex = 0;
     job.materials.forEach((material) => {
       if (isPlateMaterial(material)) {
+        sawPlateMaterial = true;
         const sizeMatch = (material.name || '').match(/A[123]/i);
         const size = sizeMatch ? sizeMatch[0].toUpperCase() : null;
         if (size === 'A1' && platesA1Cost) platesA1Cost.value = material.unit_cost;
@@ -1266,12 +1331,14 @@ function populateCostSheetFromJob(job) {
         const row = paperMaterialsList.querySelectorAll('.paper-material-item')[paperIndex];
         if (row) {
           const select = row.querySelector('select[name="paper-material-id[]"]');
+          const stockSizeSelect = row.querySelector('select[name="paper-stock-size[]"]');
+          const sidesSelect = row.querySelector('select[name="paper-print-sides[]"]');
           const quantityInput = row.querySelector('input[name="paper-material-quantity[]"]');
           if (select) select.value = material.material_id;
+          if (stockSizeSelect) stockSizeSelect.value = material.stock_size || 'A1';
+          if (sidesSelect) sidesSelect.value = material.print_sides || 'duplex';
           if (quantityInput) quantityInput.value = material.quantity;
-          updatePaperMaterialSelection(select);
           updateMaterialCost(select);
-          updateMaterialSubtotal(quantityInput);
         }
         paperIndex += 1;
       } else {
@@ -1320,6 +1387,22 @@ function populateCostSheetFromJob(job) {
     document.getElementById('typesetting-pages').value = job.additional_costs.typesetting_pages || '';
     document.getElementById('typesetting-rate').value = job.additional_costs.typesetting_rate || '';
     document.getElementById('ctp-cost').value = job.additional_costs.ctp_cost || '';
+    document.getElementById('paper-wastage-percent').value = job.additional_costs.paper_wastage_percent || 5;
+
+    // Older jobs predate these toggles, so infer whether each section was in
+    // use from whether it left behind any non-zero values.
+    document.getElementById('requires-design').checked =
+      parseFloat(job.additional_costs.design_pages || 0) > 0 || parseFloat(job.additional_costs.design_rate || 0) > 0;
+    document.getElementById('requires-typesetting').checked =
+      parseFloat(job.additional_costs.typesetting_pages || 0) > 0 || parseFloat(job.additional_costs.typesetting_rate || 0) > 0;
+    document.getElementById('requires-plates-ctp').checked =
+      parseFloat(job.additional_costs.ctp_cost || 0) > 0
+      || parseFloat(platesA1Cost?.value || 0) > 0
+      || parseFloat(platesA2Cost?.value || 0) > 0
+      || parseFloat(platesA3Cost?.value || 0) > 0
+      || sawPlateMaterial;
+    applyGatedSectionVisibility();
+
     document.getElementById('wastage-percent').value = job.additional_costs.wastage_percent || '';
     document.getElementById('wastage-cost').value = job.additional_costs.wastage_cost || '';
     document.getElementById('subcontract-description').value = job.additional_costs.subcontract_description || '';
@@ -1336,6 +1419,7 @@ function populateCostSheetFromJob(job) {
 
   updateDesignSubtotal();
   updateTypesettingSubtotal();
+  updatePaperQuantities();
   updateCostSummary();
 }
 
@@ -1411,6 +1495,7 @@ newJobBtn.addEventListener('click', () => {
   resetMaterials();
   resetMachines();
   resetProcesses();
+  applyGatedSectionVisibility();
   // Reset wizard to first step
   currentWizardStep = 0;
   showWizardSection(0);
@@ -1434,6 +1519,7 @@ cancelCostingBtn.addEventListener('click', () => {
   resetMaterials();
   resetMachines();
   // resetProcesses();
+  applyGatedSectionVisibility();
   updateCostSummary();
   currentWizardStep = 0; // Reset wizard
 });
@@ -1464,11 +1550,55 @@ if (platesA3Cost) {
 
 if (jobPageSize) {
   jobPageSize.addEventListener('change', updatePlateSummary);
+  jobPageSize.addEventListener('change', updatePaperQuantities);
 }
 
 if (jobPagesPerCopy) {
   jobPagesPerCopy.addEventListener('input', updatePlateSummary);
+  jobPagesPerCopy.addEventListener('input', updatePaperQuantities);
 }
+
+const jobQuantityInput = document.getElementById('job-quantity');
+if (jobQuantityInput) {
+  jobQuantityInput.addEventListener('input', updatePaperQuantities);
+}
+
+const paperWastagePercentInput = document.getElementById('paper-wastage-percent');
+if (paperWastagePercentInput) {
+  paperWastagePercentInput.addEventListener('input', updatePaperQuantities);
+}
+
+// Design, Typesetting, and Plates/CTP only apply to some jobs (e.g. a
+// digital-only job needs neither plates nor CTP). Each stays hidden, and out
+// of the cost totals, until its "this job requires..." checkbox is ticked.
+const gatedSections = [
+  { checkboxId: 'requires-design', fieldsId: 'design-fields' },
+  { checkboxId: 'requires-typesetting', fieldsId: 'typesetting-fields' },
+  { checkboxId: 'requires-plates-ctp', fieldsId: 'plates-ctp-fields' }
+];
+
+function applyGatedSectionVisibility() {
+  gatedSections.forEach(({ checkboxId, fieldsId }) => {
+    const checkbox = document.getElementById(checkboxId);
+    const fields = document.getElementById(fieldsId);
+    if (checkbox && fields) {
+      fields.style.display = checkbox.checked ? 'block' : 'none';
+    }
+  });
+}
+
+gatedSections.forEach(({ checkboxId }) => {
+  const checkbox = document.getElementById(checkboxId);
+  if (checkbox) {
+    checkbox.addEventListener('change', () => {
+      applyGatedSectionVisibility();
+      updateDesignSubtotal();
+      updateTypesettingSubtotal();
+      updatePrepressTotal();
+      updateCostSummary();
+    });
+  }
+});
 
 function editJob(jobId) {
   const job = jobsById[jobId];
@@ -1488,6 +1618,7 @@ async function addCalculatedItemToQuotation(quotationId, clientId) {
   resetMaterials();
   resetMachines();
   resetProcesses();
+  applyGatedSectionVisibility();
   currentWizardStep = 0;
   showSection(costingSection);
   setActiveNav(navCostingBtn);
@@ -1510,6 +1641,7 @@ function handleJobCardClick(e) {
   const addCalcBtn = e.target.closest('.add-calc-item-btn');
   const toggleItemsBtn = e.target.closest('.toggle-quotation-items-btn');
   const editBtn = e.target.closest('.rename-quotation-btn');
+  const costSheetBtn = e.target.closest('.cost-sheet-btn');
 
   if (loadBtn) {
     editJob(loadBtn.dataset.jobId);
@@ -1523,6 +1655,8 @@ function handleJobCardClick(e) {
     toggleQuotationItems(toggleItemsBtn);
   } else if (editBtn) {
     openEditQuotationModal(editBtn);
+  } else if (costSheetBtn) {
+    downloadCostSheet(costSheetBtn.dataset.jobId);
   }
 }
 
@@ -1722,6 +1856,9 @@ if (paperMaterialsList) {
     if (e.target.name === 'paper-material-id[]') {
       updatePaperMaterialSelection(e.target);
       updateMaterialCost(e.target);
+      updatePaperQuantities();
+    } else if (e.target.name === 'paper-stock-size[]' || e.target.name === 'paper-print-sides[]') {
+      updatePaperQuantities();
     }
   });
 
@@ -2079,6 +2216,7 @@ if (saveJobBtn) {
       comprehensiveForm.reset();
       resetMaterials();
       resetMachines();
+      applyGatedSectionVisibility();
       updateCostSummary();
       currentWizardStep = 0;
 
@@ -2145,6 +2283,7 @@ function renderQuotationItemRow(job) {
       </div>
       <div class="quotation-item-actions">
         <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
+        <button type="button" class="cost-sheet-btn" data-job-id="${job.id}">Cost Sheet</button>
       </div>
     </div>
   `;
@@ -2440,13 +2579,29 @@ function addPaperItem() {
         <option value="">Select paper...</option>
       </select>
     </td>
-    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Select paper first" required><span class="unit-hint">unit</span></div></td>
+    <td>
+      <select name="paper-stock-size[]">
+        <option value="A1" selected>A1</option>
+        <option value="A2">A2</option>
+        <option value="A3">A3</option>
+        <option value="A4">A4</option>
+        <option value="A5">A5</option>
+      </select>
+    </td>
+    <td>
+      <select name="paper-print-sides[]">
+        <option value="duplex" selected>Duplex</option>
+        <option value="simplex">Simplex</option>
+      </select>
+    </td>
+    <td><div class="quantity-with-unit"><input type="number" name="paper-material-quantity[]" min="0.01" step="0.01" placeholder="Auto-calculated" required><span class="unit-hint">unit</span></div></td>
     <td><input type="hidden" name="paper-material-cost[]"><span class="amount-display" data-display-for="paper-material-cost[]">0.00</span></td>
     <td><input type="hidden" name="paper-material-subtotal[]"><span class="amount-display" data-display-for="paper-material-subtotal[]">0.00</span></td>
     <td><button type="button" class="remove-paper-material" title="Remove paper" aria-label="Remove paper"><i class="bi bi-trash3"></i></button></td>
   `;
   paperMaterialsList.appendChild(paperItem);
   populatePaperMaterials();
+  updatePaperQuantities();
 }
 
 function resetPaperMaterials() {
@@ -2456,9 +2611,13 @@ function resetPaperMaterials() {
   }
   const firstItem = paperMaterialsList.querySelector('.paper-material-item');
   if (firstItem) {
-    const selects = firstItem.querySelectorAll('select');
+    const paperSelect = firstItem.querySelector('select[name="paper-material-id[]"]');
+    const stockSizeSelect = firstItem.querySelector('select[name="paper-stock-size[]"]');
+    const sidesSelect = firstItem.querySelector('select[name="paper-print-sides[]"]');
     const inputs = firstItem.querySelectorAll('input');
-    selects.forEach(select => select.value = '');
+    if (paperSelect) paperSelect.value = '';
+    if (stockSizeSelect) stockSizeSelect.value = 'A1';
+    if (sidesSelect) sidesSelect.value = 'duplex';
     inputs.forEach(input => input.value = '');
     resetAmountDisplays(firstItem);
     updateQuantityUnitHint(firstItem, null, 'paper');
@@ -2726,16 +2885,22 @@ function updateCostSummary() {
   });
   document.getElementById('materials-total').textContent = formatDisplayAmount(materialTotal);
 
+  // Plates/CTP and Design/Typesetting only count toward totals while their
+  // "this job requires..." checkbox is ticked (see gated-section toggles in Prepress).
+  const requiresPlatesCtp = document.getElementById('requires-plates-ctp')?.checked || false;
+  const requiresDesign = document.getElementById('requires-design')?.checked || false;
+  const requiresTypesetting = document.getElementById('requires-typesetting')?.checked || false;
+
   // Calculate plates costs
   const a1Qty = parseInt(platesA1?.value || 0);
   const a2Qty = parseInt(platesA2?.value || 0);
   const a3Qty = parseInt(platesA3?.value || 0);
-  
+
   const a1Cost = parseFloat(platesA1Cost?.value || 0);
   const a2Cost = parseFloat(platesA2Cost?.value || 0);
   const a3Cost = parseFloat(platesA3Cost?.value || 0);
-  
-  const platesTotal = (a1Qty * a1Cost) + (a2Qty * a2Cost) + (a3Qty * a3Cost);
+
+  const platesTotal = requiresPlatesCtp ? (a1Qty * a1Cost) + (a2Qty * a2Cost) + (a3Qty * a3Cost) : 0;
   document.getElementById('plates-total').textContent = formatDisplayAmount(platesTotal);
 
   // Calculate machine costs
@@ -2780,9 +2945,9 @@ function updateCostSummary() {
   const transportCostInput = document.getElementById('transport-cost');
   const overheadCostInput = document.getElementById('overhead-cost');
 
-  const designSubtotal = designSubtotalInput ? parseFloat(designSubtotalInput.value || 0) : 0;
-  const typesettingSubtotal = typesettingSubtotalInput ? parseFloat(typesettingSubtotalInput.value || 0) : 0;
-  const ctpCost = ctpCostInput ? parseFloat(ctpCostInput.value || 0) : 0;
+  const designSubtotal = (requiresDesign && designSubtotalInput) ? parseFloat(designSubtotalInput.value || 0) : 0;
+  const typesettingSubtotal = (requiresTypesetting && typesettingSubtotalInput) ? parseFloat(typesettingSubtotalInput.value || 0) : 0;
+  const ctpCost = (requiresPlatesCtp && ctpCostInput) ? parseFloat(ctpCostInput.value || 0) : 0;
   const subcontractCost = subcontractCostInput ? parseFloat(subcontractCostInput.value || 0) : 0;
   const commissionCost = commissionCostInput ? parseFloat(commissionCostInput.value || 0) : 0;
   const baseCost = materialTotal + platesTotal + machineTotal + processTotal + bindingSubtotal + designSubtotal + typesettingSubtotal + ctpCost + subcontractCost;
@@ -2961,6 +3126,41 @@ function updatePlatesCostSummary() {
   
   const platesTotalElem = document.getElementById('plates-total');
   if (platesTotalElem) platesTotalElem.textContent = formatDisplayAmount(platesTotal);
+}
+
+// Recalculates each paper line's sheet quantity live, the same way plates
+// auto-calculate from pages/copy — reuses getPagesPerSide (see above) with a
+// per-line stock size and simplex/duplex sides multiplier, then pads the
+// result with the job-wide Paper Wastage % (spoilage allowance on the sheet
+// count itself, separate from the cost-based Wastage % in Additional Costs).
+function updatePaperQuantities() {
+  if (!paperMaterialsList) return;
+
+  const pageSize = jobPageSize?.value;
+  const pagesPerCopy = parseInt(jobPagesPerCopy?.value || '0', 10);
+  const jobQuantity = parseInt(document.getElementById('job-quantity')?.value || '0', 10);
+  const paperWastagePercent = parseFloat(document.getElementById('paper-wastage-percent')?.value || 0);
+
+  paperMaterialsList.querySelectorAll('.paper-material-item').forEach(row => {
+    const quantityInput = row.querySelector('input[name="paper-material-quantity[]"]');
+    if (!quantityInput) return;
+
+    const stockSize = row.querySelector('select[name="paper-stock-size[]"]')?.value || 'A1';
+    const sides = row.querySelector('select[name="paper-print-sides[]"]')?.value || 'duplex';
+    const pagesPerSide = pageSize ? getPagesPerSide(stockSize, pageSize) : 0;
+
+    if (!pagesPerSide || !pagesPerCopy || pagesPerCopy <= 0 || !jobQuantity || jobQuantity <= 0) {
+      quantityInput.value = '0';
+    } else {
+      const sidesMultiplier = sides === 'simplex' ? 1 : 2;
+      const sheetsPerCopy = Math.ceil(pagesPerCopy / (pagesPerSide * sidesMultiplier));
+      const rawTotal = sheetsPerCopy * jobQuantity;
+      quantityInput.value = Math.ceil(rawTotal * (1 + paperWastagePercent / 100));
+    }
+    updateMaterialSubtotal(quantityInput);
+  });
+
+  updateCostSummary();
 }
 
 function collectCostingData() {

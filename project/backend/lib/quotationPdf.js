@@ -8,12 +8,52 @@ function toNumber(value) {
 }
 
 function formatUGX(value) {
-  return toNumber(value).toLocaleString();
+  // Cap at 2 decimals — without this, VAT-inclusive back-calculated amounts
+  // (division results) can show 3+ decimal digits from floating point.
+  return toNumber(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
 function getLogoPath() {
   const logoPath = path.join(__dirname, '..', '..', 'images', 'UPPC_NEW_LOGO_2026.png');
   return fs.existsSync(logoPath) ? logoPath : null;
+}
+
+// Fetches the cost-breakdown rows (materials, machines, bindings, processes,
+// additional costs) for one job. `job.margin_percentage` must already be set.
+// Fixed-price jobs have no breakdown to fetch — they're just qty x unit price.
+async function fetchJobCostBreakdown(pool, job) {
+  if (job.pricing_mode === 'fixed') {
+    return { job, materials: [], machines: [], bindings: [], processes: [], additionalCosts: [] };
+  }
+
+  const [materials, machines, bindings, processes, additionalCosts] = await Promise.all([
+    pool.query(`
+      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
+      FROM job_materials jm JOIN materials m ON jm.material_id = m.id WHERE jm.job_id = $1
+    `, [job.id]),
+    pool.query(`
+      SELECT jm.*, m.name as machine_name
+      FROM job_machines jm JOIN machines m ON jm.machine_id = m.id WHERE jm.job_id = $1
+    `, [job.id]),
+    pool.query(`
+      SELECT jb.*, b.method as binding_name
+      FROM job_bindings jb JOIN bindings b ON jb.binding_id = b.id WHERE jb.job_id = $1
+    `, [job.id]),
+    pool.query(`
+      SELECT jsp.*, sp.name as process_name
+      FROM job_special_processes jsp JOIN special_processes sp ON jsp.special_process_id = sp.id WHERE jsp.job_id = $1
+    `, [job.id]),
+    pool.query('SELECT * FROM job_additional_costs WHERE job_id = $1', [job.id])
+  ]);
+
+  return {
+    job,
+    materials: materials.rows,
+    machines: machines.rows,
+    bindings: bindings.rows,
+    processes: processes.rows,
+    additionalCosts: additionalCosts.rows
+  };
 }
 
 // Fetches a quotation, its client, and every job (line item) attached to it,
@@ -38,42 +78,30 @@ async function getQuotationItemsData(pool, quotationId) {
 
   const items = await Promise.all(jobsResult.rows.map(async (job) => {
     job.margin_percentage = quotation.margin_percentage;
-
-    if (job.pricing_mode === 'fixed') {
-      return { job, materials: [], machines: [], bindings: [], processes: [], additionalCosts: [] };
-    }
-
-    const [materials, machines, bindings, processes, additionalCosts] = await Promise.all([
-      pool.query(`
-        SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
-        FROM job_materials jm JOIN materials m ON jm.material_id = m.id WHERE jm.job_id = $1
-      `, [job.id]),
-      pool.query(`
-        SELECT jm.*, m.name as machine_name
-        FROM job_machines jm JOIN machines m ON jm.machine_id = m.id WHERE jm.job_id = $1
-      `, [job.id]),
-      pool.query(`
-        SELECT jb.*, b.method as binding_name
-        FROM job_bindings jb JOIN bindings b ON jb.binding_id = b.id WHERE jb.job_id = $1
-      `, [job.id]),
-      pool.query(`
-        SELECT jsp.*, sp.name as process_name
-        FROM job_special_processes jsp JOIN special_processes sp ON jsp.special_process_id = sp.id WHERE jsp.job_id = $1
-      `, [job.id]),
-      pool.query('SELECT * FROM job_additional_costs WHERE job_id = $1', [job.id])
-    ]);
-
-    return {
-      job,
-      materials: materials.rows,
-      machines: machines.rows,
-      bindings: bindings.rows,
-      processes: processes.rows,
-      additionalCosts: additionalCosts.rows
-    };
+    return fetchJobCostBreakdown(pool, job);
   }));
 
   return { quotation, items };
+}
+
+// Fetches one job with its client/margin info and full cost breakdown, for
+// the internal Cost Sheet PDF (shows how the price was actually reached).
+async function getJobCostSheetData(pool, jobId) {
+  const jobQuery = `
+    SELECT j.*, c.name as client_name, c.type as client_type,
+           mt.tier_name, mt.margin_percentage
+    FROM jobs j
+    JOIN clients c ON j.client_id = c.id
+    LEFT JOIN margin_tiers mt ON c.margin_tier_id = mt.id
+    WHERE j.id = $1
+  `;
+  const jobResult = await pool.query(jobQuery, [jobId]);
+
+  if (jobResult.rows.length === 0) {
+    return null;
+  }
+
+  return fetchJobCostBreakdown(pool, jobResult.rows[0]);
 }
 
 // Totals for a single line item (fixed-price or fully-costed).
@@ -343,6 +371,7 @@ module.exports = {
   formatUGX,
   getLogoPath,
   getQuotationItemsData,
+  getJobCostSheetData,
   calculateItemTotals,
   calculateGrandTotals,
   drawHorizontalLine,
