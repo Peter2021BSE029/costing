@@ -168,6 +168,13 @@
               <input type="text" id="edit-quotation-special-conditions" maxlength="300">
             </div>
           </div>
+          <div class="form-row single">
+            <div class="form-group">
+              <label for="edit-quotation-job-spec">Job specification (e.g. "A4 size, 571Pgs, Printed on Art paper 115gsm, Art board 300gsm, Perfect Binding and Laminated, Cover full color and Text B/w"):</label>
+              <textarea id="edit-quotation-job-spec" rows="3" maxlength="600"></textarea>
+              <button type="button" id="edit-quotation-job-spec-regenerate" class="table-add-button">Regenerate from job details</button>
+            </div>
+          </div>
           <div class="modal-buttons">
             <button type="submit">Save</button>
           </div>
@@ -220,15 +227,27 @@
                 <input type="text" id="client-address" name="client-address">
               </div>
             </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="client-contact">Contact:</label>
-                <input type="text" id="client-contact" name="client-contact">
-              </div>
-              <div class="form-group">
-                <label for="client-email">Email:</label>
-                <input type="email" id="client-email" name="client-email">
-              </div>
+            <div class="press-subsection">
+              <h4>Contacts <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">One or more contact people for this client. The first one is used as the client's primary contact/email elsewhere in the app.</span></span></h4>
+              <table class="costing-table" id="client-contacts-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="client-contacts-list">
+                  <tr class="client-contact-item">
+                    <td><input type="text" name="client-contact-name[]" placeholder="Contact name"></td>
+                    <td><input type="text" name="client-contact-phone[]" placeholder="Phone"></td>
+                    <td><input type="email" name="client-contact-email[]" placeholder="Email"></td>
+                    <td><button type="button" class="remove-client-contact" style="display: none;" title="Remove contact" aria-label="Remove contact"><i class="bi bi-trash3"></i></button></td>
+                  </tr>
+                </tbody>
+              </table>
+              <button type="button" id="add-client-contact" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Contact</button>
             </div>
             <div class="form-row single">
               <div class="form-group">

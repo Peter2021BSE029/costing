@@ -98,6 +98,9 @@ app.use('/api/system-settings', systemSettingsRouter);
 const authRouter = require('./routes/auth');
 app.use('/api/auth', authRouter.router);
 
+const usersRouter = require('./routes/users');
+app.use('/api/users', usersRouter);
+
 const server = app.listen(PORT, HOST, () => {
   console.log(`[STARTUP] Server running on http://${HOST}:${PORT}`);
   console.log(`[STARTUP] Frontend: http://${HOST}:${PORT}/`);

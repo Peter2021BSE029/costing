@@ -4,7 +4,7 @@ const router = express.Router();
 const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
 const { authenticateToken } = require('./auth');
-const { getQuotationItemsData, calculateGrandTotals, drawQuotationPdf } = require('../lib/quotationPdf');
+const { getQuotationItemsData, calculateGrandTotals, drawQuotationPdf, buildJobSpecSummary } = require('../lib/quotationPdf');
 
 // List quotations with client, item count, and grand total
 router.get('/', authenticateToken, async (req, res) => {
@@ -54,17 +54,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 // Update a quotation's name and the free-text fields printed on the PDF
-// (delivery, terms, special conditions)
+// (delivery, terms, special conditions, job specification summary)
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { name, delivery_text, terms_text, special_conditions_text } = req.body;
+  const { name, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
   const clean = (value) => (value || '').toString().trim() || null;
   try {
     const result = await pool.query(
       `UPDATE quotations
-       SET name = $1, delivery_text = $2, terms_text = $3, special_conditions_text = $4, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5
-       RETURNING id, name, delivery_text, terms_text, special_conditions_text`,
-      [clean(name), clean(delivery_text), clean(terms_text), clean(special_conditions_text), req.params.id]
+       SET name = $1, delivery_text = $2, terms_text = $3, special_conditions_text = $4, job_spec_summary = $5, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6
+       RETURNING id, name, delivery_text, terms_text, special_conditions_text, job_spec_summary`,
+      [clean(name), clean(delivery_text), clean(terms_text), clean(special_conditions_text), clean(job_spec_summary), req.params.id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Quotation not found' });
@@ -72,6 +72,23 @@ router.put('/:id', authenticateToken, async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[QUOTATIONS] Update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Draft a job specification summary from the quotation's own job data
+// (page size, pages, paper stock, binding, finishing), for the agent to
+// review/edit before saving. Kept separate from GET /:id so it's only
+// computed when actually requested (e.g. the "Regenerate" button).
+router.get('/:id/spec-summary-suggestion', authenticateToken, async (req, res) => {
+  try {
+    const data = await getQuotationItemsData(pool, req.params.id);
+    if (!data) {
+      return res.status(404).json({ error: 'Quotation not found' });
+    }
+    res.json({ suggested: buildJobSpecSummary(data.items) });
+  } catch (err) {
+    console.error('[QUOTATIONS] Spec summary suggestion error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

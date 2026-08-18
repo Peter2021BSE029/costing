@@ -114,6 +114,10 @@ const paperMaterialsList = document.getElementById('paper-materials-list');
 const addMaterialBtn = document.getElementById('add-material');
 const materialsList = document.getElementById('materials-list');
 
+// Client contacts management
+const addClientContactBtn = document.getElementById('add-client-contact');
+const clientContactsList = document.getElementById('client-contacts-list');
+
 // Machine management
 const addMachineBtn = document.getElementById('add-machine');
 const machinesList = document.getElementById('machines-list');
@@ -150,6 +154,8 @@ const editQuotationName = document.getElementById('edit-quotation-name');
 const editQuotationDelivery = document.getElementById('edit-quotation-delivery');
 const editQuotationTerms = document.getElementById('edit-quotation-terms');
 const editQuotationSpecialConditions = document.getElementById('edit-quotation-special-conditions');
+const editQuotationJobSpec = document.getElementById('edit-quotation-job-spec');
+const editQuotationJobSpecRegenerateBtn = document.getElementById('edit-quotation-job-spec-regenerate');
 
 function applyQuickJobClientMode() {
   const useNew = quickJobModeNew.checked;
@@ -370,8 +376,7 @@ function collectSectionData(section) {
         clientName: formData.get('client-name'),
         clientType: formData.get('client-type'),
         clientAddress: formData.get('client-address'),
-        clientContact: formData.get('client-contact'),
-        clientEmail: formData.get('client-email'),
+        clientContacts: collectClientContacts(formData),
         marginTier: formData.get('margin-tier'),
         jobName: formData.get('job-name'),
         jobDescription: formData.get('job-description')
@@ -490,8 +495,7 @@ function populateSectionData(section, data) {
       if (data.clientName) document.getElementById('client-name').value = data.clientName;
       if (data.clientType) document.getElementById('client-type').value = data.clientType;
       if (data.clientAddress) document.getElementById('client-address').value = data.clientAddress;
-      if (data.clientContact) document.getElementById('client-contact').value = data.clientContact;
-      if (data.clientEmail) document.getElementById('client-email').value = data.clientEmail;
+      if (data.clientContacts && data.clientContacts.length > 0) populateClientContacts(data.clientContacts);
       if (data.marginTier) document.getElementById('margin-tier').value = data.marginTier;
       setMarginTierFromClientType(data.clientType);
 
@@ -743,8 +747,7 @@ function buildCostingDataFromDraft(allData) {
       name: clientJobData.clientName,
       type: clientJobData.clientType,
       address: clientJobData.clientAddress,
-      contact: clientJobData.clientContact,
-      email: clientJobData.clientEmail,
+      contacts: clientJobData.clientContacts || [],
       margin_tier_id: parseInt(clientJobData.marginTier || 0)
     },
     job: {
@@ -1037,8 +1040,9 @@ function loadExistingClient(clientId) {
   document.getElementById('client-name').value = client.name || '';
   document.getElementById('client-type').value = client.type || '';
   document.getElementById('client-address').value = client.address || '';
-  document.getElementById('client-contact').value = client.contact || '';
-  document.getElementById('client-email').value = client.email || '';
+  populateClientContacts(Array.isArray(client.contacts) && client.contacts.length > 0
+    ? client.contacts
+    : [{ name: '', phone: client.contact || '', email: client.email || '' }]);
   document.getElementById('margin-tier').value = client.margin_tier_id || '';
   setMarginTierFromClientType(client.type);
 }
@@ -1226,8 +1230,7 @@ function clearClientFields() {
   document.getElementById('client-name').value = '';
   document.getElementById('client-type').value = '';
   document.getElementById('client-address').value = '';
-  document.getElementById('client-contact').value = '';
-  document.getElementById('client-email').value = '';
+  resetClientContacts();
   document.getElementById('margin-tier').value = '';
   marginTierDisplay.textContent = '';
   marginTierDisplay.style.display = 'none';
@@ -1869,6 +1872,24 @@ if (paperMaterialsList) {
   });
 }
 
+if (addClientContactBtn) {
+  addClientContactBtn.addEventListener('click', () => addClientContactRow());
+}
+
+if (clientContactsList) {
+  clientContactsList.addEventListener('click', (e) => {
+    const removeButton = e.target.closest('.remove-client-contact');
+    if (!removeButton) return;
+    const row = removeButton.closest('.client-contact-item');
+    const allRows = clientContactsList.querySelectorAll('.client-contact-item');
+    if (allRows.length > 1) {
+      row.remove();
+    } else {
+      row.querySelectorAll('input').forEach(input => input.value = '');
+    }
+  });
+}
+
 // Machine management
 addMachineBtn.addEventListener('click', () => {
   addMachineItem();
@@ -2333,6 +2354,7 @@ async function openEditQuotationModal(button) {
   editQuotationDelivery.value = '';
   editQuotationTerms.value = '';
   editQuotationSpecialConditions.value = '';
+  editQuotationJobSpec.value = '';
 
   try {
     const quotation = await apiRequest(`/quotations/${quotationId}`);
@@ -2340,11 +2362,40 @@ async function openEditQuotationModal(button) {
     editQuotationDelivery.value = quotation.delivery_text || '';
     editQuotationTerms.value = quotation.terms_text || '';
     editQuotationSpecialConditions.value = quotation.special_conditions_text || '';
+    editQuotationJobSpec.value = quotation.job_spec_summary || '';
     editQuotationModal.style.display = 'block';
+
+    // Pre-fill an empty spec field with a draft from the job's own data, so
+    // the agent usually just has to review/tweak it rather than start blank.
+    if (!editQuotationJobSpec.value) {
+      fetchJobSpecSuggestion(quotationId);
+    }
   } catch (error) {
     // Error already shown by apiRequest
   }
 }
+
+async function fetchJobSpecSuggestion(quotationId) {
+  try {
+    const { suggested } = await apiRequest(`/quotations/${quotationId}/spec-summary-suggestion`);
+    if (suggested && !editQuotationJobSpec.value) {
+      editQuotationJobSpec.value = suggested;
+    }
+  } catch (error) {
+    // Non-critical — the agent can still type the summary in by hand
+  }
+}
+
+editQuotationJobSpecRegenerateBtn.addEventListener('click', async () => {
+  const quotationId = editQuotationIdInput.value;
+  if (!quotationId) return;
+  try {
+    const { suggested } = await apiRequest(`/quotations/${quotationId}/spec-summary-suggestion`);
+    editQuotationJobSpec.value = suggested || '';
+  } catch (error) {
+    // Error already shown by apiRequest
+  }
+});
 
 editQuotationForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -2356,7 +2407,8 @@ editQuotationForm.addEventListener('submit', async (e) => {
         name: editQuotationName.value,
         delivery_text: editQuotationDelivery.value,
         terms_text: editQuotationTerms.value,
-        special_conditions_text: editQuotationSpecialConditions.value
+        special_conditions_text: editQuotationSpecialConditions.value,
+        job_spec_summary: editQuotationJobSpec.value
       })
     });
     if (quotationsById[quotationId]) {
@@ -2622,6 +2674,62 @@ function resetPaperMaterials() {
     resetAmountDisplays(firstItem);
     updateQuantityUnitHint(firstItem, null, 'paper');
   }
+}
+
+// Client contacts: one or more name/phone/email rows for the client being
+// created/edited in the wizard, mirroring the Paper Stock repeatable table.
+function addClientContactRow() {
+  const row = document.createElement('tr');
+  row.className = 'client-contact-item';
+  row.innerHTML = `
+    <td><input type="text" name="client-contact-name[]" placeholder="Contact name"></td>
+    <td><input type="text" name="client-contact-phone[]" placeholder="Phone"></td>
+    <td><input type="email" name="client-contact-email[]" placeholder="Email"></td>
+    <td><button type="button" class="remove-client-contact" title="Remove contact" aria-label="Remove contact"><i class="bi bi-trash3"></i></button></td>
+  `;
+  clientContactsList.appendChild(row);
+  return row;
+}
+
+function resetClientContacts() {
+  const rows = clientContactsList.querySelectorAll('.client-contact-item');
+  for (let i = 1; i < rows.length; i++) {
+    rows[i].remove();
+  }
+  const firstRow = clientContactsList.querySelector('.client-contact-item');
+  if (firstRow) {
+    firstRow.querySelectorAll('input').forEach(input => input.value = '');
+  }
+}
+
+// Replaces the table's contents with the given contacts (used when loading
+// an existing client or restoring a wizard draft).
+function populateClientContacts(contacts) {
+  resetClientContacts();
+  contacts.forEach((contact, index) => {
+    const row = index === 0
+      ? clientContactsList.querySelector('.client-contact-item')
+      : addClientContactRow();
+    if (!row) return;
+    row.querySelector('input[name="client-contact-name[]"]').value = contact.name || '';
+    row.querySelector('input[name="client-contact-phone[]"]').value = contact.phone || '';
+    row.querySelector('input[name="client-contact-email[]"]').value = contact.email || '';
+  });
+}
+
+function collectClientContacts(formData) {
+  const names = formData.getAll('client-contact-name[]');
+  const phones = formData.getAll('client-contact-phone[]');
+  const emails = formData.getAll('client-contact-email[]');
+  const contacts = [];
+  names.forEach((name, index) => {
+    const phone = phones[index] || '';
+    const email = emails[index] || '';
+    if (name || phone || email) {
+      contacts.push({ name: name || '', phone, email });
+    }
+  });
+  return contacts;
 }
 
 function addMachineItem() {
@@ -3226,8 +3334,7 @@ function collectCostingData() {
       name: formData.get('client-name'),
       type: formData.get('client-type'),
       address: formData.get('client-address'),
-      contact: formData.get('client-contact'),
-      email: formData.get('client-email'),
+      contacts: collectClientContacts(formData),
       margin_tier_id: parseInt(formData.get('margin-tier') || 0)
     },
     job: {

@@ -75,8 +75,10 @@ const statusDiv = document.getElementById('status');
 const refreshAdminDataBtn = document.getElementById('refresh-admin-data');
 const materialsTableBody = document.querySelector('#admin-materials-table tbody');
 const machinesTableBody = document.querySelector('#admin-machines-table tbody');
+const usersTableBody = document.querySelector('#admin-users-table tbody');
 const createMaterialForm = document.getElementById('create-material-form');
 const createMachineForm = document.getElementById('create-machine-form');
+const createUserForm = document.getElementById('create-user-form');
 const materialsSearchInput = document.getElementById('materials-search');
 const materialsCategoryFilter = document.getElementById('materials-category-filter');
 const materialsSortSelect = document.getElementById('materials-sort');
@@ -87,6 +89,7 @@ const machinesSortSelect = document.getElementById('machines-sort');
 const adminState = {
   materials: [],
   machines: [],
+  users: [],
   materialSearch: '',
   materialCategory: '',
   materialSort: { key: 'name', direction: 'asc' },
@@ -153,18 +156,34 @@ function createEditableCell(value, type = 'text') {
   return input;
 }
 
+function createEditableSelect(value, options) {
+  const select = document.createElement('select');
+  select.className = 'admin-input';
+  options.forEach(optionValue => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    if (optionValue === value) option.selected = true;
+    select.appendChild(option);
+  });
+  return select;
+}
+
 async function loadAdminData() {
   try {
-    const [materials, machines] = await Promise.all([
+    const [materials, machines, users] = await Promise.all([
       apiRequest('/materials'),
-      apiRequest('/machines')
+      apiRequest('/machines'),
+      apiRequest('/users')
     ]);
 
     adminState.materials = materials;
     adminState.machines = machines;
+    adminState.users = users;
     populateMaterialCategoryFilter(materials);
     renderMaterials();
     renderMachines();
+    renderUsers();
     showStatus('Admin data loaded successfully.');
   } catch (error) {
     console.error('Unable to load admin data:', error);
@@ -342,6 +361,44 @@ function renderMachines() {
   });
 }
 
+function renderUsers() {
+  usersTableBody.innerHTML = '';
+
+  if (adminState.users.length === 0) {
+    renderEmptyRow(usersTableBody, 4, 'No users yet.');
+    return;
+  }
+
+  adminState.users.forEach(user => {
+    const row = document.createElement('tr');
+    const usernameCell = createTableCell(user.username);
+    const fullNameInput = createEditableCell(user.full_name || '', 'text');
+    const roleSelect = createEditableSelect(user.role, ['costing', 'stores']);
+
+    const actionContainer = document.createElement('div');
+    actionContainer.className = 'admin-actions';
+
+    const saveButton = createIconButton('bi-check2', 'Save user', 'save-action', () => saveUser(user.id, row));
+    const resetPasswordButton = createIconButton('bi-key', 'Reset password', 'save-action', () => resetUserPassword(user.id, user.username));
+    const deleteButton = createIconButton('bi-trash3', 'Delete user', 'delete-action', () => {
+      if (confirm(`Delete user "${user.username}"?`)) {
+        deleteUser(user.id);
+      }
+    });
+
+    actionContainer.appendChild(saveButton);
+    actionContainer.appendChild(resetPasswordButton);
+    actionContainer.appendChild(deleteButton);
+
+    row.appendChild(usernameCell);
+    row.appendChild(createTableCell(fullNameInput));
+    row.appendChild(createTableCell(roleSelect));
+    row.appendChild(createTableCell(actionContainer));
+    row.dataset.userId = user.id;
+    usersTableBody.appendChild(row);
+  });
+}
+
 async function saveMaterial(id, row) {
   const inputs = row.querySelectorAll('input');
   const [nameInput, categoryInput, unitInput, costInput] = inputs;
@@ -407,6 +464,49 @@ async function deleteMachine(id) {
   }
 }
 
+async function saveUser(id, row) {
+  const fullNameInput = row.querySelector('input.admin-input');
+  const roleSelect = row.querySelector('select.admin-input');
+
+  try {
+    const updated = await apiRequest(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ full_name: fullNameInput.value, role: roleSelect.value })
+    });
+    showStatus(`User updated: ${updated.username}`);
+    await loadAdminData();
+  } catch (error) {
+    console.error('Save user error:', error);
+  }
+}
+
+async function resetUserPassword(id, username) {
+  const newPassword = prompt(`New password for "${username}":`);
+  if (!newPassword) return;
+
+  try {
+    await apiRequest(`/users/${id}/password`, {
+      method: 'PUT',
+      body: JSON.stringify({ password: newPassword })
+    });
+    showStatus(`Password reset for ${username}.`);
+  } catch (error) {
+    console.error('Reset password error:', error);
+  }
+}
+
+async function deleteUser(id) {
+  try {
+    await apiRequest(`/users/${id}`, {
+      method: 'DELETE'
+    });
+    showStatus('User deleted successfully.');
+    await loadAdminData();
+  } catch (error) {
+    console.error('Delete user error:', error);
+  }
+}
+
 createMaterialForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const name = document.getElementById('new-material-name').value;
@@ -443,6 +543,26 @@ createMachineForm.addEventListener('submit', async (event) => {
     showStatus('New machine added successfully.');
   } catch (error) {
     console.error('Create machine error:', error);
+  }
+});
+
+createUserForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const username = document.getElementById('new-user-username').value;
+  const full_name = document.getElementById('new-user-fullname').value;
+  const password = document.getElementById('new-user-password').value;
+  const role = document.getElementById('new-user-role').value;
+
+  try {
+    await apiRequest('/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, full_name, password, role })
+    });
+    createUserForm.reset();
+    await loadAdminData();
+    showStatus('New user added successfully.');
+  } catch (error) {
+    console.error('Create user error:', error);
   }
 });
 

@@ -28,6 +28,10 @@ MIGRATIONS=(
   "add_quotation_name.sql"
   "add_vat_option.sql"
   "add_quotation_text_fields.sql"
+  "add_client_contacts.sql"
+  "add_job_spec_summary.sql"
+  "add_user_full_name.sql"
+  "add_created_by.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do

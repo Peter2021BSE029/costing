@@ -119,6 +119,40 @@
         </form>
       </div>
     </section>
+
+    <section class="page-card">
+      <div class="section-header">
+        <h2>Users</h2>
+      </div>
+      <div class="admin-section">
+        <table id="admin-users-table" class="admin-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Full Name</th>
+              <th>Role</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="admin-form-card">
+        <h3>Add New User</h3>
+        <form id="create-user-form">
+          <div class="form-row">
+            <input type="text" id="new-user-username" placeholder="Username" required>
+            <input type="text" id="new-user-fullname" placeholder="Full name">
+            <input type="password" id="new-user-password" placeholder="Password" required>
+            <select id="new-user-role">
+              <option value="costing">Costing</option>
+              <option value="stores">Stores</option>
+            </select>
+            <button type="submit" class="primary-button">Add User</button>
+          </div>
+        </form>
+      </div>
+    </section>
   </main>
 
   <script src="js/admin.js"></script>

@@ -18,7 +18,7 @@ function normalizeVatOption(value) {
 // If quotation_id is supplied, the item joins that existing quotation (client is
 // taken from the quotation, ignoring any client/client_id also sent). Otherwise a
 // client is created-or-found from `client`/`client_id`, and a new quotation is opened for it.
-async function resolveQuotationAndClient(conn, { quotation_id, client_id, client }) {
+async function resolveQuotationAndClient(conn, { quotation_id, client_id, client, createdBy }) {
   if (quotation_id) {
     const quotationResult = await conn.query('SELECT id, client_id FROM quotations WHERE id = $1', [quotation_id]);
     if (quotationResult.rows.length === 0) {
@@ -30,8 +30,8 @@ async function resolveQuotationAndClient(conn, { quotation_id, client_id, client
   const clientId = await resolveClient(conn, { client_id, client });
 
   const newQuotation = await conn.query(
-    'INSERT INTO quotations (client_id) VALUES ($1) RETURNING id',
-    [clientId]
+    'INSERT INTO quotations (client_id, created_by) VALUES ($1, $2) RETURNING id',
+    [clientId, createdBy || null]
   );
 
   return { quotationId: newQuotation.rows[0].id, clientId };
@@ -164,25 +164,64 @@ async function insertJobLineItems(conn, jobId, { materials = [], plates = [], ma
 }
 
 // Resolves (creates if needed) the client a job belongs to, from `client`/`client_id`.
+// `client.contacts` (optional array of {name, phone, email}) replaces the client's
+// contact list when supplied; `clients.contact`/`clients.email` are kept in sync
+// with the first contact so older read paths (client cards, quick-job) still work.
 async function resolveClient(conn, { client_id, client }) {
   let clientId = client_id ? parseInt(client_id, 10) : null;
-  if (clientId) {
-    return clientId;
+
+  if (!clientId) {
+    const existingClient = await conn.query(
+      'SELECT id FROM clients WHERE name = $1 AND email = $2',
+      [client.name, client.email || '']
+    );
+    if (existingClient.rows.length > 0) {
+      clientId = existingClient.rows[0].id;
+    }
   }
 
-  const existingClient = await conn.query(
-    'SELECT id FROM clients WHERE name = $1 AND email = $2',
-    [client.name, client.email || '']
-  );
-  if (existingClient.rows.length > 0) {
-    return existingClient.rows[0].id;
+  const contactList = Array.isArray(client && client.contacts)
+    ? client.contacts.filter(c => c && (c.name || c.phone || c.email))
+    : [];
+  const primaryContact = contactList[0] || {};
+
+  if (clientId) {
+    if (contactList.length > 0) {
+      await conn.query('DELETE FROM client_contacts WHERE client_id = $1', [clientId]);
+      for (const c of contactList) {
+        await conn.query(
+          'INSERT INTO client_contacts (client_id, name, phone, email) VALUES ($1, $2, $3, $4)',
+          [clientId, c.name || null, c.phone || null, c.email || null]
+        );
+      }
+      await conn.query(
+        'UPDATE clients SET contact = COALESCE($1, contact), email = COALESCE($2, email) WHERE id = $3',
+        [primaryContact.phone || null, primaryContact.email || null, clientId]
+      );
+    }
+    return clientId;
   }
 
   const inserted = await conn.query(
     'INSERT INTO clients (name, type, address, contact, email, margin_tier_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-    [client.name, client.type, client.address, client.contact, client.email, client.margin_tier_id]
+    [client.name, client.type, client.address, primaryContact.phone || client.contact, primaryContact.email || client.email, client.margin_tier_id]
   );
-  return inserted.rows[0].id;
+  clientId = inserted.rows[0].id;
+
+  // Even without a `contacts` array (e.g. the quick-job mini client form), seed one
+  // contact row from the legacy fields so quotation rendering has a contact to show.
+  const seedContacts = contactList.length > 0
+    ? contactList
+    : (client.contact || client.email) ? [{ name: null, phone: client.contact || null, email: client.email || null }] : [];
+
+  for (const c of seedContacts) {
+    await conn.query(
+      'INSERT INTO client_contacts (client_id, name, phone, email) VALUES ($1, $2, $3, $4)',
+      [clientId, c.name || null, c.phone || null, c.email || null]
+    );
+  }
+
+  return clientId;
 }
 
 // Submit comprehensive costing (adds one fully-costed item, to a new or existing quotation)
@@ -219,11 +258,11 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     await clientConn.query('BEGIN');
 
-    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client });
+    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client, createdBy: req.user.id });
 
     // 2. Create job (line item)
-    const jobColumns = ['client_id', 'quotation_id', 'name', 'description', 'quantity'];
-    const jobValues = [clientId, quotationId, job.name, job.description, job.quantity];
+    const jobColumns = ['client_id', 'quotation_id', 'name', 'description', 'quantity', 'created_by'];
+    const jobValues = [clientId, quotationId, job.name, job.description, job.quantity, req.user.id];
     const optionalJobColumns = ['page_size', 'pages_per_copy', 'stock_sheets', 'plates_a1', 'plates_a2', 'plates_a3'];
 
     const availableJobColumns = (await clientConn.query(
@@ -369,14 +408,14 @@ router.post('/quick', authenticateToken, async (req, res) => {
   try {
     await clientConn.query('BEGIN');
 
-    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client });
+    const { quotationId, clientId } = await resolveQuotationAndClient(clientConn, { quotation_id, client_id, client, createdBy: req.user.id });
 
     const jobIds = [];
     for (const item of items) {
       const jobResult = await clientConn.query(
-        `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price, vat_option)
-         VALUES ($1, $2, $3, $4, $5, 'fixed', $6, $7) RETURNING id`,
-        [clientId, quotationId, item.name, item.description || '', item.quantity, toNumber(item.fixed_price), normalizeVatOption(item.vat_option)]
+        `INSERT INTO jobs (client_id, quotation_id, name, description, quantity, pricing_mode, fixed_price, vat_option, created_by)
+         VALUES ($1, $2, $3, $4, $5, 'fixed', $6, $7, $8) RETURNING id`,
+        [clientId, quotationId, item.name, item.description || '', item.quantity, toNumber(item.fixed_price), normalizeVatOption(item.vat_option), req.user.id]
       );
       jobIds.push(jobResult.rows[0].id);
     }

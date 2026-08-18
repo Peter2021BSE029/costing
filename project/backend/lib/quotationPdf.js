@@ -28,7 +28,7 @@ async function fetchJobCostBreakdown(pool, job) {
 
   const [materials, machines, bindings, processes, additionalCosts] = await Promise.all([
     pool.query(`
-      SELECT jm.*, m.name as material_name, m.unit_of_measure as unit
+      SELECT jm.*, m.name as material_name, m.category as material_category, m.unit_of_measure as unit
       FROM job_materials jm JOIN materials m ON jm.material_id = m.id WHERE jm.job_id = $1
     `, [job.id]),
     pool.query(`
@@ -61,10 +61,12 @@ async function fetchJobCostBreakdown(pool, job) {
 async function getQuotationItemsData(pool, quotationId) {
   const quotationQuery = `
     SELECT q.*, c.name as client_name, c.type as client_type, c.address as client_address,
-           c.contact as client_contact, c.email as client_email, mt.margin_percentage
+           c.contact as client_contact, c.email as client_email, mt.margin_percentage,
+           u.full_name as costed_by_full_name, u.username as costed_by_username
     FROM quotations q
     JOIN clients c ON q.client_id = c.id
     JOIN margin_tiers mt ON c.margin_tier_id = mt.id
+    LEFT JOIN users u ON q.created_by = u.id
     WHERE q.id = $1
   `;
   const quotationResult = await pool.query(quotationQuery, [quotationId]);
@@ -75,6 +77,11 @@ async function getQuotationItemsData(pool, quotationId) {
 
   const quotation = quotationResult.rows[0];
   const jobsResult = await pool.query('SELECT * FROM jobs WHERE quotation_id = $1 ORDER BY id', [quotationId]);
+  const contactsResult = await pool.query(
+    'SELECT * FROM client_contacts WHERE client_id = $1 ORDER BY id',
+    [quotation.client_id]
+  );
+  quotation.contacts = contactsResult.rows;
 
   const items = await Promise.all(jobsResult.rows.map(async (job) => {
     job.margin_percentage = quotation.margin_percentage;
@@ -200,10 +207,70 @@ function drawHorizontalLine(doc, x1, x2, y, width = 1) {
   doc.lineWidth(width).moveTo(x1, y).lineTo(x2, y).stroke();
 }
 
-function drawUnderlineField(doc, label, value, x, y, labelWidth, fieldWidth) {
+function drawUnderlineField(doc, label, value, x, y, labelWidth, fieldWidth, valueColor = 'black') {
   doc.font('Helvetica').fontSize(10).fillColor('black').text(label, x, y);
-  doc.text(value || '', x + labelWidth, y, { width: fieldWidth, height: 14 });
+  doc.fillColor(valueColor).text(value || '', x + labelWidth, y, { width: fieldWidth, height: 14 });
+  doc.fillColor('black');
   drawHorizontalLine(doc, x + labelWidth, x + labelWidth + fieldWidth, y + 14, 0.8);
+}
+
+// One line listing every contact person for the client, starting from the
+// left margin. Falls back to the client's legacy single contact/email
+// (pre-dating multi-contact support) when it has no client_contacts rows.
+function formatContactsLine(quotation) {
+  const contacts = Array.isArray(quotation.contacts) ? quotation.contacts : [];
+  const formatted = contacts
+    .map(c => [c.name, c.phone, c.email].filter(Boolean).join(' - '))
+    .filter(Boolean);
+  if (formatted.length > 0) {
+    return formatted.join('; ');
+  }
+  return [quotation.client_contact, quotation.client_email].filter(Boolean).join(' - ');
+}
+
+// A material row counts as "paper" using the same category heuristic the
+// costing wizard already uses client-side (app.js `isPaperMaterial`) to tell
+// paper stock apart from plates/envelopes in the same job.
+function isPaperMaterial(material) {
+  const category = (material.material_category || material.category || '').toString().toLowerCase();
+  const excluded = ['plate', 'plates', 'envelope', 'envelopes'];
+  if (excluded.some(word => category.includes(word))) return false;
+  return ['paper', 'stock', 'card', 'cardstock', 'board'].some(word => category.includes(word));
+}
+
+// Drafts one job's spec clause from real job data (page size, pages, paper
+// stock, binding, finishing processes). Anything not tracked in the data
+// model (e.g. cover/text colour) is left for the agent to add by hand.
+function buildItemSpecClause(item) {
+  const { job, materials = [], bindings = [], processes = [] } = item;
+  const parts = [];
+
+  if (job.page_size) parts.push(`${job.page_size} size`);
+  if (job.pages_per_copy) parts.push(`${job.pages_per_copy}Pgs`);
+
+  const paperNames = materials.filter(isPaperMaterial).map(m => m.material_name).filter(Boolean);
+  if (paperNames.length > 0) parts.push(`Printed on ${paperNames.join(', ')}`);
+
+  const bindingNames = bindings.map(b => b.binding_name).filter(Boolean);
+  if (bindingNames.length > 0) parts.push(bindingNames.join(', '));
+
+  const processNames = processes.map(p => p.process_name).filter(Boolean);
+  if (processNames.length > 0) parts.push(processNames.join(', '));
+
+  return parts.join(', ');
+}
+
+// Drafts a full job-specification summary across every line item on a
+// quotation, for the agent to review/edit before it's saved and printed.
+function buildJobSpecSummary(items) {
+  const clauses = items
+    .map((item, index) => {
+      const clause = buildItemSpecClause(item);
+      if (!clause) return null;
+      return items.length > 1 ? `Item ${index + 1} (${item.job.name}): ${clause}` : clause;
+    })
+    .filter(Boolean);
+  return clauses.join('; ');
 }
 
 // Draws every item in `data.items` as its own row in the quotation table,
@@ -222,16 +289,17 @@ function drawQuotationPdf(doc, quotationId, data) {
   // The logo image already carries the full wordmark ("UGANDA PRINTING AND
   // PUBLISHING CORPORATION" + "UNDER THE OFFICE OF THE PRESIDENT"), so it's
   // shown large and centered here instead of redrawing that text separately.
-  const logoBoxWidth = 360;
-  const logoBoxHeight = 130;
+  // Kept compact so quotations with many line items have more room above the footer.
+  const logoBoxWidth = 260;
+  const logoBoxHeight = 94;
   const logoX = pageLeft + (pageWidth - logoBoxWidth) / 2;
-  const logoTop = 16;
+  const logoTop = 12;
   if (logoPath) {
     doc.image(logoPath, logoX, logoTop, { fit: [logoBoxWidth, logoBoxHeight], align: 'center' });
   }
 
   const contactTop = logoTop + logoBoxHeight + 4;
-  doc.font('Helvetica').fontSize(8.8).text(
+  doc.font('Helvetica').fontSize(7.5).text(
     'P.O. Box 33, Entebbe, Uganda\n' +
     'Tel: 0326520250 | Toll-Free: 0800205520 | WhatsApp: +256 783 914 332\n' +
     'Email: info@uppc.go.ug | Web: www.uppc.go.ug',
@@ -242,27 +310,38 @@ function drawQuotationPdf(doc, quotationId, data) {
 
   // Everything below the header hangs off this one line's position, so the
   // rest of the layout shifts down automatically when the header grows.
-  const headerRuleY = contactTop + 40;
+  const headerRuleY = contactTop + 34;
   const headerShift = headerRuleY - 181;
   drawHorizontalLine(doc, pageLeft, pageRight, headerRuleY, 1.4);
 
   doc.font('Helvetica-Bold').fontSize(18).text('QUOTATION', pageLeft, 190 + headerShift, { width: pageWidth, align: 'center' });
-  doc.font('Helvetica-Bold').fontSize(17).fillColor('#b41414').text(quoteNo, 456, 190 + headerShift, { width: 80, align: 'center' });
-  doc.fillColor('black');
   drawHorizontalLine(doc, pageLeft, pageRight, 215 + headerShift, 1.4);
 
   drawUnderlineField(doc, 'To:', quotation.client_name, pageLeft, 230 + headerShift, 24, 300);
-  drawUnderlineField(doc, 'Enquiry Ref:', '', 350, 230 + headerShift, 70, 130);
-  drawUnderlineField(doc, '', quotation.client_address || '', pageLeft + 24, 254 + headerShift, 0, 300);
-  drawUnderlineField(doc, '', quotation.client_contact || '', 350, 254 + headerShift, 0, 200);
-  drawUnderlineField(doc, '', quotation.client_email || '', pageLeft + 24, 278 + headerShift, 0, 300);
+  drawUnderlineField(doc, 'Enquiry Ref:', quoteNo, 350, 230 + headerShift, 70, 130, '#b41414');
+  drawUnderlineField(doc, '', quotation.client_address || '', pageLeft + 24, 254 + headerShift, 0, pageWidth - 24);
+  drawUnderlineField(doc, 'Contact:', formatContactsLine(quotation), pageLeft, 278 + headerShift, 46, pageWidth - 46);
   drawHorizontalLine(doc, pageLeft, pageRight, 304 + headerShift, 1.4);
 
-  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, 315 + headerShift);
-  drawUnderlineField(doc, 'Date:', quoteDate, 392, 315 + headerShift, 34, 125);
-  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, 337 + headerShift);
+  // The job specification block wraps to however many lines it needs, so
+  // everything below it (intro paragraph, item table, totals, footer) is
+  // positioned from a running cursor instead of fixed offsets.
+  let cursorY = 304 + headerShift + 11;
+  if (quotation.job_spec_summary) {
+    doc.font('Helvetica-Bold').fontSize(9).text('Job Specification:', pageLeft, cursorY);
+    const specBodyY = cursorY + 12;
+    doc.font('Helvetica').fontSize(9);
+    const specHeight = doc.heightOfString(quotation.job_spec_summary, { width: pageWidth, lineGap: 1 });
+    doc.text(quotation.job_spec_summary, pageLeft, specBodyY, { width: pageWidth, lineGap: 1 });
+    cursorY = specBodyY + specHeight + 10;
+  }
 
-  const tableTop = 358 + headerShift;
+  const dearSirY = cursorY;
+  doc.font('Helvetica').fontSize(11).text('Dear Sir/Madam,', pageLeft, dearSirY);
+  drawUnderlineField(doc, 'Date:', quoteDate, 392, dearSirY, 34, 125);
+  doc.text('Thank you for your valued enquiry for which we have pleasure in quoting as follows:', pageLeft, dearSirY + 22);
+
+  const tableTop = dearSirY + 43;
   const tableLeft = pageLeft;
   const colWidths = [105, 215, 80, 125];
   const rowHeight = 23;
@@ -364,6 +443,11 @@ function drawQuotationPdf(doc, quotationId, data) {
   doc.font('Helvetica').fontSize(11);
   doc.text('Yours faithfully,', pageLeft, footerTop + 118);
   doc.text('for UGANDA PRINTING AND PUBLISHING CORPORATION', pageLeft, footerTop + 143);
+
+  const costedByName = quotation.costed_by_full_name || quotation.costed_by_username;
+  if (costedByName) {
+    doc.fontSize(9).text(`Costed by: ${costedByName}`, pageLeft, footerTop + 161);
+  }
 }
 
 module.exports = {
@@ -374,6 +458,7 @@ module.exports = {
   getJobCostSheetData,
   calculateItemTotals,
   calculateGrandTotals,
+  buildJobSpecSummary,
   drawHorizontalLine,
   drawUnderlineField,
   drawQuotationPdf
