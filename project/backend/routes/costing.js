@@ -4,7 +4,7 @@ const router = express.Router();
 const pool = require('../server').pool;
 const PDFDocument = require('pdfkit');
 const { authenticateToken } = require('./auth');
-const { toNumber, getJobCostSheetData } = require('../lib/quotationPdf');
+const { toNumber, getJobCostSheetData, getQuotationItemsData, buildJobSpecSummary } = require('../lib/quotationPdf');
 const { drawCostSheetPdf } = require('../lib/costSheetPdf');
 
 // A fixed job's price is either exclusive of VAT (18% added on top) or
@@ -12,6 +12,40 @@ const { drawCostSheetPdf } = require('../lib/costSheetPdf');
 // back to the historical default.
 function normalizeVatOption(value) {
   return value === 'inclusive' ? 'inclusive' : 'exclusive';
+}
+
+function cleanText(value) {
+  return (value || '').toString().trim() || null;
+}
+
+// Applies the optional quotation-level free text (delivery/terms/special
+// conditions, job specification) submitted alongside a job save, so users
+// can fill these in right when saving a job/quick item instead of having to
+// open Edit Quotation Details afterward. An explicit value always wins;
+// otherwise whatever's already on the quotation is kept; only when there's
+// neither does the job specification get auto-drafted from the job data
+// that was just saved.
+async function applyQuotationTextFields(conn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary } = {}) {
+  const cleanedSpec = cleanText(job_spec_summary);
+
+  let suggestedSpec = null;
+  if (!cleanedSpec) {
+    const freshData = await getQuotationItemsData(conn, quotationId);
+    if (freshData) {
+      suggestedSpec = buildJobSpecSummary(freshData.items) || null;
+    }
+  }
+
+  await conn.query(
+    `UPDATE quotations
+     SET delivery_text = COALESCE($1, delivery_text),
+         terms_text = COALESCE($2, terms_text),
+         special_conditions_text = COALESCE($3, special_conditions_text),
+         job_spec_summary = COALESCE($4, job_spec_summary, $5),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $6`,
+    [cleanText(delivery_text), cleanText(terms_text), cleanText(special_conditions_text), cleanedSpec, suggestedSpec, quotationId]
+  );
 }
 
 // Resolves the client to bill and the quotation to attach a new item to.
@@ -238,7 +272,11 @@ router.post('/', authenticateToken, async (req, res) => {
     machines = [],
     processes = [],
     binding,
-    additional_costs
+    additional_costs,
+    delivery_text,
+    terms_text,
+    special_conditions_text,
+    job_spec_summary
   } = req.body;
 
   console.log('[COSTING] Parsed data - client:', client, 'job:', job, 'quotation_id:', quotation_id);
@@ -288,6 +326,8 @@ router.post('/', authenticateToken, async (req, res) => {
     const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
     console.log('[COSTING] Inserted line items:', counts);
 
+    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+
     await clientConn.query('COMMIT');
     console.log('[COSTING] Transaction committed successfully');
 
@@ -315,7 +355,11 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
     machines = [],
     processes = [],
     binding,
-    additional_costs
+    additional_costs,
+    delivery_text,
+    terms_text,
+    special_conditions_text,
+    job_spec_summary
   } = req.body;
 
   if (!job || !job.name || !job.quantity) {
@@ -373,6 +417,8 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
     const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
     console.log('[COSTING] Updated job', jobId, '- inserted line items:', counts);
 
+    await applyQuotationTextFields(clientConn, existingJob.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+
     await clientConn.query('COMMIT');
 
     res.json({ job_id: Number(jobId), quotation_id: existingJob.rows[0].quotation_id, message: 'Costing updated successfully' });
@@ -389,7 +435,7 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
 // Create one or more fixed-price jobs at once (quick quotation line items,
 // skips the costing wizard), all attached to the same quotation.
 router.post('/quick', authenticateToken, async (req, res) => {
-  const { client_id, client, quotation_id, items } = req.body;
+  const { client_id, client, quotation_id, items, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'At least one item is required' });
@@ -420,6 +466,8 @@ router.post('/quick', authenticateToken, async (req, res) => {
       jobIds.push(jobResult.rows[0].id);
     }
 
+    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+
     await clientConn.query('COMMIT');
     res.json({
       job_ids: jobIds,
@@ -438,25 +486,35 @@ router.post('/quick', authenticateToken, async (req, res) => {
 // Update a fixed-price job
 router.put('/quick/:jobId', authenticateToken, async (req, res) => {
   const { jobId } = req.params;
-  const { job } = req.body;
+  const { job, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
 
   if (!job || !job.name || !job.quantity || job.fixed_price === undefined || job.fixed_price === null || job.fixed_price === '') {
     return res.status(400).json({ error: 'Job name, quantity, and unit price are required' });
   }
 
+  const clientConn = await pool.connect();
   try {
-    const result = await pool.query(
+    await clientConn.query('BEGIN');
+    const result = await clientConn.query(
       `UPDATE jobs SET name = $1, description = $2, quantity = $3, fixed_price = $4, vat_option = $5, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6 AND pricing_mode = 'fixed' RETURNING id`,
+       WHERE id = $6 AND pricing_mode = 'fixed' RETURNING id, quotation_id`,
       [job.name, job.description || '', job.quantity, toNumber(job.fixed_price), normalizeVatOption(job.vat_option), jobId]
     );
     if (result.rows.length === 0) {
+      await clientConn.query('ROLLBACK');
       return res.status(404).json({ error: 'Fixed-price job not found' });
     }
+
+    await applyQuotationTextFields(clientConn, result.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+
+    await clientConn.query('COMMIT');
     res.json({ job_id: result.rows[0].id, message: 'Fixed-price job updated successfully' });
   } catch (err) {
+    await clientConn.query('ROLLBACK');
     console.error('[COSTING] Quick job update failed:', err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    clientConn.release();
   }
 });
 

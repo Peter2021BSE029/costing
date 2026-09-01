@@ -995,6 +995,22 @@ async function loadCostSheetData() {
   populateExistingClients(clients);
 }
 
+// Pre-fills the wizard's Quotation Details fields (delivery/terms/special
+// conditions, job spec) with whatever's already on the quotation, so editing
+// a job or adding another item to it shows what's there instead of blank.
+async function prefillWizardQuotationTextFields(quotationId) {
+  if (!quotationId) return;
+  try {
+    const quotation = await apiRequest(`/quotations/${quotationId}`);
+    document.getElementById('job-delivery-text').value = quotation.delivery_text || '';
+    document.getElementById('job-terms-text').value = quotation.terms_text || '';
+    document.getElementById('job-special-conditions-text').value = quotation.special_conditions_text || '';
+    document.getElementById('job-spec-summary-text').value = quotation.job_spec_summary || '';
+  } catch (error) {
+    // Non-critical — fields just stay blank
+  }
+}
+
 async function loadJobForEdit(jobId) {
   try {
     pendingQuotationId = null;
@@ -1007,6 +1023,7 @@ async function loadJobForEdit(jobId) {
 
     // Populate all sections from job data
     populateCostSheetFromJob(job);
+    prefillWizardQuotationTextFields(job.quotation_id);
 
     // Save all sections to draft
     wizardSections.forEach(section => {
@@ -1166,6 +1183,21 @@ function collectQuickJobItems() {
   return items;
 }
 
+// Pre-fills the quotation-level fields (delivery/terms/special conditions,
+// job spec) with whatever's already on the quotation, so editing a job or
+// adding another item shows what's there instead of looking blank.
+async function prefillQuickJobQuotationTextFields(quotationId) {
+  try {
+    const quotation = await apiRequest(`/quotations/${quotationId}`);
+    document.getElementById('quick-job-delivery-text').value = quotation.delivery_text || '';
+    document.getElementById('quick-job-terms-text').value = quotation.terms_text || '';
+    document.getElementById('quick-job-special-conditions-text').value = quotation.special_conditions_text || '';
+    document.getElementById('quick-job-spec-summary-text').value = quotation.job_spec_summary || '';
+  } catch (error) {
+    // Non-critical — fields just stay blank
+  }
+}
+
 // job: pass to edit an existing fixed-price item.
 // attachQuotationId: pass to add a new fixed-price item straight to an existing quotation (client is fixed).
 async function openQuickJobModal(job, attachQuotationId) {
@@ -1193,6 +1225,7 @@ async function openQuickJobModal(job, attachQuotationId) {
     priceInput.value = job.fixed_price ? Number(job.fixed_price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
     row.querySelector('select[name="quick-job-item-vat[]"]').value = job.vat_option === 'inclusive' ? 'inclusive' : 'exclusive';
     updateQuickJobLineTotal(row);
+    if (job.quotation_id) prefillQuickJobQuotationTextFields(job.quotation_id);
   } else if (attachQuotationId) {
     quickJobTitle.textContent = `Add Fixed-Price Item(s) to Quotation #${attachQuotationId}`;
     quickJobIdInput.value = '';
@@ -1202,6 +1235,7 @@ async function openQuickJobModal(job, attachQuotationId) {
     quickJobNewClientRow.style.display = 'none';
     quickJobNewClientContactRow.style.display = 'none';
     addQuickJobItemBtn.style.display = '';
+    prefillQuickJobQuotationTextFields(attachQuotationId);
   } else {
     quickJobTitle.textContent = 'Quick Fixed-Price Job';
     quickJobIdInput.value = '';
@@ -1632,6 +1666,7 @@ async function addCalculatedItemToQuotation(quotationId, clientId) {
 
   existingClientSelect.value = clientId;
   loadExistingClient(clientId);
+  prefillWizardQuotationTextFields(quotationId);
   showWizardSection(0);
   updateCostSummary();
   showStatus(`Adding a fully-costed item to Quotation #${quotationId}`);
@@ -1730,21 +1765,28 @@ quickJobForm.addEventListener('submit', async (e) => {
     }
   }
 
+  const quotationTextFields = {
+    delivery_text: document.getElementById('quick-job-delivery-text').value,
+    terms_text: document.getElementById('quick-job-terms-text').value,
+    special_conditions_text: document.getElementById('quick-job-special-conditions-text').value,
+    job_spec_summary: document.getElementById('quick-job-spec-summary-text').value
+  };
+
   try {
     if (jobId) {
       await apiRequest(`/costing/quick/${jobId}`, {
         method: 'PUT',
-        body: JSON.stringify({ job: items[0] })
+        body: JSON.stringify({ job: items[0], ...quotationTextFields })
       });
       showStatus('Fixed-price job updated successfully');
     } else if (quickJobAttachQuotationIdInput.value) {
       await apiRequest('/costing/quick', {
         method: 'POST',
-        body: JSON.stringify({ items, quotation_id: parseInt(quickJobAttachQuotationIdInput.value, 10) })
+        body: JSON.stringify({ items, quotation_id: parseInt(quickJobAttachQuotationIdInput.value, 10), ...quotationTextFields })
       });
       showStatus(`${items.length} item(s) added to quotation successfully`);
     } else {
-      const payload = { items };
+      const payload = { items, ...quotationTextFields };
 
       if (quickJobModeNew.checked) {
         if (!quickJobNewClientName.value.trim()) {
@@ -2174,7 +2216,11 @@ if (saveJobBtn) {
     try {
       const allData = collectAllData();
       const costingData = buildCostingDataFromDraft(allData);
-      
+      costingData.delivery_text = document.getElementById('job-delivery-text').value;
+      costingData.terms_text = document.getElementById('job-terms-text').value;
+      costingData.special_conditions_text = document.getElementById('job-special-conditions-text').value;
+      costingData.job_spec_summary = document.getElementById('job-spec-summary-text').value;
+
       // Validate required fields
       if (!costingData.client.name) {
         showStatus('Client name is required', 'error');

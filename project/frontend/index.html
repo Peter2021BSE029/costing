@@ -130,6 +130,33 @@
             <button type="button" id="add-quick-job-item" class="table-add-button"><i class="bi bi-plus-lg"></i> Add Item</button>
             <div class="quick-job-items-grand-total">Total: UGX <span id="quick-job-items-grand-total">0.00</span></div>
           </div>
+          <div class="press-subsection">
+            <h4>Quotation Details <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Printed on the client-facing quotation. Fill these in now so they're ready immediately, or leave blank and edit them later from the Jobs list.</span></span></h4>
+            <div class="form-row single">
+              <div class="form-group">
+                <label for="quick-job-delivery-text">Delivery (printed before "from receipt of order at factory"):</label>
+                <input type="text" id="quick-job-delivery-text" maxlength="300" placeholder="e.g. 2 weeks">
+              </div>
+            </div>
+            <div class="form-row single">
+              <div class="form-group">
+                <label for="quick-job-terms-text">Terms:</label>
+                <input type="text" id="quick-job-terms-text" maxlength="300" placeholder="e.g. 50% deposit, balance on delivery">
+              </div>
+            </div>
+            <div class="form-row single">
+              <div class="form-group">
+                <label for="quick-job-special-conditions-text">Special conditions:</label>
+                <input type="text" id="quick-job-special-conditions-text" maxlength="300">
+              </div>
+            </div>
+            <div class="form-row single">
+              <div class="form-group">
+                <label for="quick-job-spec-summary-text">Job specification:</label>
+                <textarea id="quick-job-spec-summary-text" rows="2" maxlength="600"></textarea>
+              </div>
+            </div>
+          </div>
           <div class="modal-buttons">
             <button type="submit">Save</button>
           </div>
@@ -767,6 +794,33 @@
                 <tr class="summary-final-row"><td>Invoice Total <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Selling Price + VAT — the final amount the client pays.</span></span></td><td></td><td id="invoice-total">0</td></tr>
               </tbody>
             </table>
+            <div class="press-subsection">
+              <h4>Quotation Details <span class="tip-wrap"><button type="button" class="tip-btn">i</button><span class="tip-popup">Printed on the client-facing quotation. Fill these in now so they're ready immediately, or leave blank and edit them later from the Jobs list.</span></span></h4>
+              <div class="form-row single">
+                <div class="form-group">
+                  <label for="job-delivery-text">Delivery (printed before "from receipt of order at factory"):</label>
+                  <input type="text" id="job-delivery-text" name="job-delivery-text" maxlength="300" placeholder="e.g. 2 weeks">
+                </div>
+              </div>
+              <div class="form-row single">
+                <div class="form-group">
+                  <label for="job-terms-text">Terms:</label>
+                  <input type="text" id="job-terms-text" name="job-terms-text" maxlength="300" placeholder="e.g. 50% deposit, balance on delivery">
+                </div>
+              </div>
+              <div class="form-row single">
+                <div class="form-group">
+                  <label for="job-special-conditions-text">Special conditions:</label>
+                  <input type="text" id="job-special-conditions-text" name="job-special-conditions-text" maxlength="300">
+                </div>
+              </div>
+              <div class="form-row single">
+                <div class="form-group">
+                  <label for="job-spec-summary-text">Job specification (leave blank to auto-draft from the details above, e.g. "A4 size, 571Pgs, Printed on Art paper 115gsm, Perfect Binding and Laminated"):</label>
+                  <textarea id="job-spec-summary-text" name="job-spec-summary-text" rows="3" maxlength="600"></textarea>
+                </div>
+              </div>
+            </div>
           </div>
           </div>
 
