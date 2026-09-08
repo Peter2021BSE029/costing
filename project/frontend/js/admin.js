@@ -98,13 +98,52 @@ const adminState = {
   machineSort: { key: 'name', direction: 'asc' }
 };
 
+// Fixed-position toast (see #status in style.css) so it never pushes page
+// content down. Errors stay up until the user dismisses them — success/info
+// messages still auto-dismiss since there's nothing urgent to read there.
+let statusHideTimer = null;
+
 function showStatus(message, type = 'success') {
-  statusDiv.textContent = message;
+  if (statusHideTimer) {
+    clearTimeout(statusHideTimer);
+    statusHideTimer = null;
+  }
+
+  statusDiv.textContent = '';
+  const text = document.createElement('span');
+  text.textContent = message;
+  statusDiv.appendChild(text);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'status-close';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => {
+    statusDiv.style.display = 'none';
+  });
+  statusDiv.appendChild(closeBtn);
+
   statusDiv.className = type;
   statusDiv.style.display = 'block';
-  setTimeout(() => {
-    statusDiv.style.display = 'none';
-  }, 5000);
+
+  if (type !== 'error') {
+    statusHideTimer = setTimeout(() => {
+      statusDiv.style.display = 'none';
+    }, 5000);
+  }
+}
+
+// The backend sends errors as { error: "..." } with a message meant for the
+// user; returns null (letting the caller fall back to something generic) if
+// the body isn't that shape.
+function extractErrorMessage(bodyText) {
+  try {
+    const parsed = JSON.parse(bodyText);
+    return (parsed && parsed.error) || null;
+  } catch (parseError) {
+    return null;
+  }
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -126,13 +165,17 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${text}`);
+      console.error(`[API] HTTP ${response.status} ${response.statusText} on ${endpoint}:`, text);
+      throw new Error(extractErrorMessage(text) || 'Something went wrong. Please try again.');
     }
 
     return await response.json();
   } catch (error) {
+    const message = error instanceof TypeError
+      ? 'Could not reach the server. Check your connection and try again.'
+      : error.message;
     console.error('Admin API Error:', error);
-    showStatus(`Error: ${error.message}`, 'error');
+    showStatus(message, 'error');
     throw error;
   }
 }

@@ -25,7 +25,7 @@ function cleanText(value) {
 // otherwise whatever's already on the quotation is kept; only when there's
 // neither does the job specification get auto-drafted from the job data
 // that was just saved.
-async function applyQuotationTextFields(conn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary } = {}) {
+async function applyQuotationTextFields(conn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name } = {}) {
   const cleanedSpec = cleanText(job_spec_summary);
 
   let suggestedSpec = null;
@@ -42,9 +42,10 @@ async function applyQuotationTextFields(conn, quotationId, { delivery_text, term
          terms_text = COALESCE($2, terms_text),
          special_conditions_text = COALESCE($3, special_conditions_text),
          job_spec_summary = COALESCE($4, job_spec_summary, $5),
+         costing_agent_name = COALESCE($6, costing_agent_name),
          updated_at = CURRENT_TIMESTAMP
-     WHERE id = $6`,
-    [cleanText(delivery_text), cleanText(terms_text), cleanText(special_conditions_text), cleanedSpec, suggestedSpec, quotationId]
+     WHERE id = $7`,
+    [cleanText(delivery_text), cleanText(terms_text), cleanText(special_conditions_text), cleanedSpec, suggestedSpec, cleanText(costing_agent_name), quotationId]
   );
 }
 
@@ -276,7 +277,8 @@ router.post('/', authenticateToken, async (req, res) => {
     delivery_text,
     terms_text,
     special_conditions_text,
-    job_spec_summary
+    job_spec_summary,
+    costing_agent_name
   } = req.body;
 
   console.log('[COSTING] Parsed data - client:', client, 'job:', job, 'quotation_id:', quotation_id);
@@ -326,7 +328,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
     console.log('[COSTING] Inserted line items:', counts);
 
-    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name });
 
     await clientConn.query('COMMIT');
     console.log('[COSTING] Transaction committed successfully');
@@ -359,7 +361,8 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
     delivery_text,
     terms_text,
     special_conditions_text,
-    job_spec_summary
+    job_spec_summary,
+    costing_agent_name
   } = req.body;
 
   if (!job || !job.name || !job.quantity) {
@@ -417,7 +420,7 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
     const counts = await insertJobLineItems(clientConn, jobId, { materials, plates, machines, processes, binding, additional_costs });
     console.log('[COSTING] Updated job', jobId, '- inserted line items:', counts);
 
-    await applyQuotationTextFields(clientConn, existingJob.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+    await applyQuotationTextFields(clientConn, existingJob.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name });
 
     await clientConn.query('COMMIT');
 
@@ -435,7 +438,7 @@ router.put('/:jobId', authenticateToken, async (req, res) => {
 // Create one or more fixed-price jobs at once (quick quotation line items,
 // skips the costing wizard), all attached to the same quotation.
 router.post('/quick', authenticateToken, async (req, res) => {
-  const { client_id, client, quotation_id, items, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
+  const { client_id, client, quotation_id, items, delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name } = req.body;
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'At least one item is required' });
@@ -466,7 +469,7 @@ router.post('/quick', authenticateToken, async (req, res) => {
       jobIds.push(jobResult.rows[0].id);
     }
 
-    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+    await applyQuotationTextFields(clientConn, quotationId, { delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name });
 
     await clientConn.query('COMMIT');
     res.json({
@@ -486,7 +489,7 @@ router.post('/quick', authenticateToken, async (req, res) => {
 // Update a fixed-price job
 router.put('/quick/:jobId', authenticateToken, async (req, res) => {
   const { jobId } = req.params;
-  const { job, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
+  const { job, delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name } = req.body;
 
   if (!job || !job.name || !job.quantity || job.fixed_price === undefined || job.fixed_price === null || job.fixed_price === '') {
     return res.status(400).json({ error: 'Job name, quantity, and unit price are required' });
@@ -505,7 +508,7 @@ router.put('/quick/:jobId', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Fixed-price job not found' });
     }
 
-    await applyQuotationTextFields(clientConn, result.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary });
+    await applyQuotationTextFields(clientConn, result.rows[0].quotation_id, { delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name });
 
     await clientConn.query('COMMIT');
     res.json({ job_id: result.rows[0].id, message: 'Fixed-price job updated successfully' });

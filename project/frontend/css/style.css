@@ -80,11 +80,41 @@ header button.active {
 }
 
 
+/* A fixed toast instead of an in-flow banner, so it never pushes page
+   content down and always sits above modals (including the calculator
+   popups nested inside them) instead of being hidden behind their overlay. */
 #status {
-  padding: 10px;
-  margin-bottom: 20px;
-  border-radius: 4px;
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 5000;
+  box-sizing: border-box;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 14px 40px 14px 16px;
+  margin-bottom: 0;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  font-size: 14px;
+  line-height: 1.4;
   display: none;
+}
+
+#status .status-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  padding: 4px;
+}
+
+#status .status-close:hover {
+  opacity: 1;
 }
 
 .page-card {

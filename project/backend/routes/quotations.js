@@ -56,15 +56,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Update a quotation's name and the free-text fields printed on the PDF
 // (delivery, terms, special conditions, job specification summary)
 router.put('/:id', authenticateToken, async (req, res) => {
-  const { name, delivery_text, terms_text, special_conditions_text, job_spec_summary } = req.body;
+  const { name, delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name } = req.body;
   const clean = (value) => (value || '').toString().trim() || null;
   try {
     const result = await pool.query(
       `UPDATE quotations
-       SET name = $1, delivery_text = $2, terms_text = $3, special_conditions_text = $4, job_spec_summary = $5, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6
-       RETURNING id, name, delivery_text, terms_text, special_conditions_text, job_spec_summary`,
-      [clean(name), clean(delivery_text), clean(terms_text), clean(special_conditions_text), clean(job_spec_summary), req.params.id]
+       SET name = $1, delivery_text = $2, terms_text = $3, special_conditions_text = $4, job_spec_summary = $5, costing_agent_name = $6, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $7
+       RETURNING id, name, delivery_text, terms_text, special_conditions_text, job_spec_summary, costing_agent_name`,
+      [clean(name), clean(delivery_text), clean(terms_text), clean(special_conditions_text), clean(job_spec_summary), clean(costing_agent_name), req.params.id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Quotation not found' });

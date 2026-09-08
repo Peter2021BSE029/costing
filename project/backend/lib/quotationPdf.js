@@ -344,10 +344,7 @@ function drawQuotationPdf(doc, quotationId, data) {
   const tableTop = dearSirY + 43;
   const tableLeft = pageLeft;
   const colWidths = [105, 215, 80, 125];
-  const rowHeight = 23;
-  const tableRows = Math.max(items.length, 1);
   const tableWidth = colWidths.reduce((sum, width) => sum + width, 0);
-  const tableBottom = tableTop + rowHeight * (tableRows + 1);
   const colX = [
     tableLeft,
     tableLeft + colWidths[0],
@@ -355,39 +352,84 @@ function drawQuotationPdf(doc, quotationId, data) {
     tableLeft + colWidths[0] + colWidths[1] + colWidths[2],
     tableLeft + tableWidth
   ];
+  // Bottom margin every page (including continuation pages) stops drawing
+  // above, so a row/block is never sliced in half by a page boundary.
+  const pageBottomLimit = doc.page.height - 40;
+  const headerRowHeight = 26;
 
-  doc.lineWidth(1.1).rect(tableLeft, tableTop, tableWidth, rowHeight * (tableRows + 1)).stroke();
-  for (let i = 1; i < colX.length - 1; i++) {
-    doc.moveTo(colX[i], tableTop).lineTo(colX[i], tableBottom).stroke();
+  function drawRowFrame(y, height) {
+    doc.lineWidth(1.1).rect(tableLeft, y, tableWidth, height).stroke();
+    for (let i = 1; i < colX.length - 1; i++) {
+      doc.moveTo(colX[i], y).lineTo(colX[i], y + height).stroke();
+    }
   }
-  for (let i = 1; i <= tableRows + 1; i++) {
-    doc.moveTo(tableLeft, tableTop + i * rowHeight).lineTo(tableLeft + tableWidth, tableTop + i * rowHeight).stroke();
+
+  function drawTableHeaderRow(y) {
+    drawRowFrame(y, headerRowHeight);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('black');
+    doc.text('Quantity', colX[0], y + 7, { width: colWidths[0], align: 'center' });
+    doc.text('Description', colX[1], y + 7, { width: colWidths[1], align: 'center' });
+    doc.text('Rate', colX[2], y + 7, { width: colWidths[2], align: 'center' });
+    doc.text('Price', colX[3], y + 7, { width: colWidths[3], align: 'center' });
+    return y + headerRowHeight;
   }
 
-  doc.font('Helvetica-Bold').fontSize(11);
-  doc.text('Quantity', colX[0], tableTop + 6, { width: colWidths[0], align: 'center' });
-  doc.text('Description', colX[1], tableTop + 6, { width: colWidths[1], align: 'center' });
-  doc.text('Rate', colX[2], tableTop + 6, { width: colWidths[2], align: 'center' });
-  doc.text('Price', colX[3], tableTop + 6, { width: colWidths[3], align: 'center' });
+  // A fresh page for when the item table itself runs past one page — a
+  // light continuation heading plus a repeated column header, not the full
+  // logo block (that only ever prints once, on the first page).
+  function startContinuationPage() {
+    doc.addPage();
+    doc.fillColor('black');
+    doc.font('Helvetica-Bold').fontSize(12).text(`QUOTATION ${quoteNo} (continued)`, pageLeft, 28, { width: pageWidth, align: 'center' });
+    doc.font('Helvetica').fontSize(9).text(quotation.client_name || '', pageLeft, 46, { width: pageWidth, align: 'center' });
+    return drawTableHeaderRow(70);
+  }
 
-  doc.font('Helvetica').fontSize(10);
+  cursorY = drawTableHeaderRow(tableTop);
   const grandTotals = { sellingPrice: 0, vatAmount: 0, finalTotal: 0 };
+  const minRowHeight = 23;
 
-  items.forEach((item, index) => {
+  items.forEach((item) => {
     const totals = calculateItemTotals(item);
     grandTotals.sellingPrice += totals.sellingPrice;
     grandTotals.vatAmount += totals.vatAmount;
     grandTotals.finalTotal += totals.finalTotal;
 
-    const description = [item.job.name, item.job.description].filter(Boolean).join(' - ');
-    const itemY = tableTop + rowHeight * (index + 1) + 6;
-    doc.text(formatUGX(item.job.quantity), colX[0] + 4, itemY, { width: colWidths[0] - 8, align: 'center' });
-    doc.text(description || 'Printing services', colX[1] + 6, itemY, { width: colWidths[1] - 12, height: rowHeight - 4 });
-    doc.text(formatUGX(totals.rate), colX[2] + 4, itemY, { width: colWidths[2] - 8, align: 'right' });
-    doc.text(formatUGX(totals.sellingPrice), colX[3] + 4, itemY, { width: colWidths[3] - 8, align: 'right' });
+    const description = [item.job.name, item.job.description].filter(Boolean).join(' - ') || 'Printing services';
+    doc.font('Helvetica').fontSize(10);
+    const descHeight = doc.heightOfString(description, { width: colWidths[1] - 12, lineGap: 1 });
+    const rowHeight = Math.max(minRowHeight, descHeight + 8);
+
+    // Keep the whole row together on one page — an item's description never
+    // gets split across a page break, even if that leaves blank space below
+    // the last row on the page before it.
+    if (cursorY + rowHeight > pageBottomLimit) {
+      cursorY = startContinuationPage();
+    }
+
+    drawRowFrame(cursorY, rowHeight);
+    const singleLineY = cursorY + (rowHeight - 12) / 2;
+    doc.font('Helvetica').fontSize(10).fillColor('black');
+    doc.text(formatUGX(item.job.quantity), colX[0] + 4, singleLineY, { width: colWidths[0] - 8, align: 'center' });
+    doc.text(description, colX[1] + 6, cursorY + 5, { width: colWidths[1] - 12, lineGap: 1 });
+    doc.text(formatUGX(totals.rate), colX[2] + 4, singleLineY, { width: colWidths[2] - 8, align: 'right' });
+    doc.text(formatUGX(totals.sellingPrice), colX[3] + 4, singleLineY, { width: colWidths[3] - 8, align: 'right' });
+
+    cursorY += rowHeight;
   });
 
-  const totalsTop = tableBottom + 10;
+  // Totals + footer (validity note, totals boxes, delivery/terms/special
+  // conditions, signature, costed-by) are one closing block — if the whole
+  // thing can't fit under the last item row, it starts fresh on a new page
+  // rather than being cut across the page boundary partway through.
+  const TRAILING_BLOCK_HEIGHT = 335;
+  if (cursorY + TRAILING_BLOCK_HEIGHT > pageBottomLimit) {
+    doc.addPage();
+    doc.fillColor('black');
+    cursorY = 40;
+  }
+
+  const totalsTop = cursorY + 10;
   doc.font('Helvetica-Bold').fontSize(8.5).text(
     'THIS QUOTATION IS VALID FOR THIRTY DAYS FROM THE DATE HEREON\nAND IS SUBJECT TO THE CONDITIONS PRINTED OVERLEAF\nE&O.E.',
     pageLeft,
@@ -444,7 +486,10 @@ function drawQuotationPdf(doc, quotationId, data) {
   doc.text('Yours faithfully,', pageLeft, footerTop + 118);
   doc.text('for UGANDA PRINTING AND PUBLISHING CORPORATION', pageLeft, footerTop + 143);
 
-  const costedByName = quotation.costed_by_full_name || quotation.costed_by_username;
+  // The manually-typed name takes priority for now — most accounts are still
+  // shared logins, so it's the more reliable source until this is wired up
+  // to pick the name from the logged-in account automatically.
+  const costedByName = quotation.costing_agent_name || quotation.costed_by_full_name || quotation.costed_by_username;
   if (costedByName) {
     doc.fontSize(9).text(`Costed by: ${costedByName}`, pageLeft, footerTop + 161);
   }

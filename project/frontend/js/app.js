@@ -156,6 +156,7 @@ const editQuotationTerms = document.getElementById('edit-quotation-terms');
 const editQuotationSpecialConditions = document.getElementById('edit-quotation-special-conditions');
 const editQuotationJobSpec = document.getElementById('edit-quotation-job-spec');
 const editQuotationJobSpecRegenerateBtn = document.getElementById('edit-quotation-job-spec-regenerate');
+const editQuotationCostingAgent = document.getElementById('edit-quotation-costing-agent');
 
 function applyQuickJobClientMode() {
   const useNew = quickJobModeNew.checked;
@@ -236,13 +237,54 @@ const sectionNames = {
 };
 
 // Utility functions
+
+// Fixed-position toast (see #status in style.css) so it never pushes page
+// content down and always sits above modals. Errors stay up until the user
+// dismisses them (or the next message replaces them) — success/info
+// messages still auto-dismiss since there's nothing urgent to read there.
+let statusHideTimer = null;
+
 function showStatus(message, type = 'success') {
-  statusDiv.textContent = message;
+  if (statusHideTimer) {
+    clearTimeout(statusHideTimer);
+    statusHideTimer = null;
+  }
+
+  statusDiv.textContent = '';
+  const text = document.createElement('span');
+  text.textContent = message;
+  statusDiv.appendChild(text);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'status-close';
+  closeBtn.setAttribute('aria-label', 'Dismiss');
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => {
+    statusDiv.style.display = 'none';
+  });
+  statusDiv.appendChild(closeBtn);
+
   statusDiv.className = type;
   statusDiv.style.display = 'block';
-  setTimeout(() => {
-    statusDiv.style.display = 'none';
-  }, 5000);
+
+  if (type !== 'error') {
+    statusHideTimer = setTimeout(() => {
+      statusDiv.style.display = 'none';
+    }, 5000);
+  }
+}
+
+// The backend sends errors as { error: "..." } with a message meant for the
+// user; returns null (letting the caller fall back to something generic) if
+// the body isn't that shape.
+function extractErrorMessage(bodyText) {
+  try {
+    const parsed = JSON.parse(bodyText);
+    return (parsed && parsed.error) || null;
+  } catch (parseError) {
+    return null;
+  }
 }
 
 async function apiRequest(endpoint, options = {}) {
@@ -264,6 +306,9 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
       const body = await response.text();
+      const friendlyMessage = extractErrorMessage(body);
+      console.error(`[API] HTTP ${response.status} ${response.statusText} on ${endpoint}:`, body);
+
       if (response.status === 401 || response.status === 403) {
         // Flush whatever is on screen into the draft before bouncing to
         // login, so an expired session never wipes in-progress wizard work.
@@ -274,18 +319,25 @@ async function apiRequest(endpoint, options = {}) {
         localStorage.removeItem('user');
         showStatus('Session expired. Your work has been saved as a draft — log back in and reopen Costing to continue.', 'error');
         setTimeout(() => window.location.href = 'login.html', 1200);
-        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+        const sessionError = new Error(friendlyMessage || 'Session expired');
+        sessionError.alreadyShown = true;
+        throw sessionError;
       }
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+
+      throw new Error(friendlyMessage || 'Something went wrong. Please try again.');
     }
 
     return await response.json();
   } catch (error) {
-    console.error('API Error:', error);
-    if (error.message.includes('401') || error.message.includes('403')) {
-      return;
+    if (!error.alreadyShown) {
+      // A failed fetch() itself (offline, CORS, server unreachable) throws a
+      // generic TypeError — give that a plain-English message too.
+      const message = error instanceof TypeError
+        ? 'Could not reach the server. Check your connection and try again.'
+        : error.message;
+      console.error('[API] Request failed:', error);
+      showStatus(message, 'error');
     }
-    showStatus(`Error: ${error.message}`, 'error');
     throw error;
   }
 }
@@ -864,7 +916,8 @@ async function generateQuotation(quotationId) {
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+      console.error(`[API] HTTP ${response.status} ${response.statusText} generating quotation ${quotationId}:`, body);
+      throw new Error(extractErrorMessage(body) || 'Could not generate the quotation PDF. Please try again.');
     }
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
@@ -877,7 +930,7 @@ async function generateQuotation(quotationId) {
     document.body.removeChild(a);
   } catch (error) {
     console.error('Quotation generation error:', error);
-    showStatus(`Error generating quotation: ${error.message}`, 'error');
+    showStatus(error.message, 'error');
   }
 }
 
@@ -891,7 +944,8 @@ async function downloadCostSheet(jobId) {
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${body}`);
+      console.error(`[API] HTTP ${response.status} ${response.statusText} generating cost sheet for job ${jobId}:`, body);
+      throw new Error(extractErrorMessage(body) || 'Could not generate the cost sheet PDF. Please try again.');
     }
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
@@ -904,7 +958,7 @@ async function downloadCostSheet(jobId) {
     document.body.removeChild(a);
   } catch (error) {
     console.error('Cost sheet generation error:', error);
-    showStatus(`Error generating cost sheet: ${error.message}`, 'error');
+    showStatus(error.message, 'error');
   }
 }
 
@@ -1006,6 +1060,7 @@ async function prefillWizardQuotationTextFields(quotationId) {
     document.getElementById('job-terms-text').value = quotation.terms_text || '';
     document.getElementById('job-special-conditions-text').value = quotation.special_conditions_text || '';
     document.getElementById('job-spec-summary-text').value = quotation.job_spec_summary || '';
+    document.getElementById('job-costing-agent-name').value = quotation.costing_agent_name || '';
   } catch (error) {
     // Non-critical — fields just stay blank
   }
@@ -1193,6 +1248,7 @@ async function prefillQuickJobQuotationTextFields(quotationId) {
     document.getElementById('quick-job-terms-text').value = quotation.terms_text || '';
     document.getElementById('quick-job-special-conditions-text').value = quotation.special_conditions_text || '';
     document.getElementById('quick-job-spec-summary-text').value = quotation.job_spec_summary || '';
+    document.getElementById('quick-job-costing-agent-name').value = quotation.costing_agent_name || '';
   } catch (error) {
     // Non-critical — fields just stay blank
   }
@@ -1769,7 +1825,8 @@ quickJobForm.addEventListener('submit', async (e) => {
     delivery_text: document.getElementById('quick-job-delivery-text').value,
     terms_text: document.getElementById('quick-job-terms-text').value,
     special_conditions_text: document.getElementById('quick-job-special-conditions-text').value,
-    job_spec_summary: document.getElementById('quick-job-spec-summary-text').value
+    job_spec_summary: document.getElementById('quick-job-spec-summary-text').value,
+    costing_agent_name: document.getElementById('quick-job-costing-agent-name').value
   };
 
   try {
@@ -2220,6 +2277,7 @@ if (saveJobBtn) {
       costingData.terms_text = document.getElementById('job-terms-text').value;
       costingData.special_conditions_text = document.getElementById('job-special-conditions-text').value;
       costingData.job_spec_summary = document.getElementById('job-spec-summary-text').value;
+      costingData.costing_agent_name = document.getElementById('job-costing-agent-name').value;
 
       // Validate required fields
       if (!costingData.client.name) {
@@ -2288,8 +2346,8 @@ if (saveJobBtn) {
       currentWizardStep = 0;
 
     } catch (error) {
+      // Error already shown by apiRequest
       console.error('Costing submission error:', error);
-      showStatus(`Error: ${error.message}`, 'error');
     }
   });
 } else {
@@ -2401,6 +2459,7 @@ async function openEditQuotationModal(button) {
   editQuotationTerms.value = '';
   editQuotationSpecialConditions.value = '';
   editQuotationJobSpec.value = '';
+  editQuotationCostingAgent.value = '';
 
   try {
     const quotation = await apiRequest(`/quotations/${quotationId}`);
@@ -2409,6 +2468,7 @@ async function openEditQuotationModal(button) {
     editQuotationTerms.value = quotation.terms_text || '';
     editQuotationSpecialConditions.value = quotation.special_conditions_text || '';
     editQuotationJobSpec.value = quotation.job_spec_summary || '';
+    editQuotationCostingAgent.value = quotation.costing_agent_name || '';
     editQuotationModal.style.display = 'block';
 
     // Pre-fill an empty spec field with a draft from the job's own data, so
@@ -2454,7 +2514,8 @@ editQuotationForm.addEventListener('submit', async (e) => {
         delivery_text: editQuotationDelivery.value,
         terms_text: editQuotationTerms.value,
         special_conditions_text: editQuotationSpecialConditions.value,
-        job_spec_summary: editQuotationJobSpec.value
+        job_spec_summary: editQuotationJobSpec.value,
+        costing_agent_name: editQuotationCostingAgent.value
       })
     });
     if (quotationsById[quotationId]) {
