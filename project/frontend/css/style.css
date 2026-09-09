@@ -444,23 +444,39 @@ button[type="submit"]:hover {
   color: #1d1d1b;
 }
 
+/* A visibly different background from the card around it, so it's obvious
+   at a glance where the expanded item list starts and ends. */
 .quotation-items-list {
   margin-top: 10px;
-  border-top: 1px solid #e5e5e5;
+  padding: 4px 14px;
+  background: #f3f2ec;
+  border: 1px solid #e5e2d3;
+  border-radius: 8px;
 }
 
+/* Row = a content column (name/badge/status, then details) that can wrap
+   and grow as tall as it needs, plus an actions column that never wraps
+   and always stays pinned top-right — so every row lines up the same way
+   regardless of how long its text is. */
 .quotation-item-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 0;
-  border-bottom: 1px solid #ececec;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e0d2;
 }
 
 .quotation-item-row:last-child {
   border-bottom: 0;
+}
+
+.quotation-item-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .quotation-item-main {
@@ -481,6 +497,17 @@ button[type="submit"]:hover {
   gap: 14px;
   font-size: 13px;
   color: #555;
+}
+
+.quotation-item-details span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.quotation-item-actions {
+  flex: 0 0 auto;
 }
 
 .quotation-item-actions button {
@@ -1199,6 +1226,62 @@ main {
 .remove-process:hover,
 .remove-quick-job-item:hover {
   background: #f8d1d1;
+}
+
+/* Icon-only action buttons on quotation cards (view/print/add/edit/delete) —
+   a title attribute carries the label as a hover tooltip instead of visible
+   text, to cut the clutter of the old wide text buttons. */
+.icon-action.view-action {
+  background: #eef1f5;
+  color: #33475b;
+}
+
+.icon-action.view-action:hover {
+  background: #dde3ea;
+}
+
+.icon-action.download-action {
+  background: #e7f0fd;
+  color: #1a56b0;
+}
+
+.icon-action.download-action:hover {
+  background: #d3e3fb;
+}
+
+.icon-action.add-action {
+  background: #fde8e2;
+  color: #b8320a;
+}
+
+.icon-action.add-action:hover {
+  background: #fad3c8;
+}
+
+.icon-action.edit-action {
+  background: #fff4d6;
+  color: #8a6300;
+}
+
+.icon-action.edit-action:hover {
+  background: #ffe9ad;
+}
+
+.card-actions,
+.quotation-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* .icon-action alone is out-specificity'd by the older ".card-actions
+   button" / ".quotation-item-actions button" rules below for padding and
+   min-width, so restate those here at matching specificity. */
+.card-actions .icon-action,
+.quotation-item-actions .icon-action {
+  padding: 0;
+  min-width: 0;
 }
 
 .remove-material,

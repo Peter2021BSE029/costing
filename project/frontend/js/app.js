@@ -864,6 +864,24 @@ function formatDisplayAmount(value) {
     : '0.00';
 }
 
+// For text that gets interpolated into innerHTML (job names/descriptions are
+// free text with no length or character limit) — escapes it so it can't
+// break the markup or inject anything via a `title` attribute or similar.
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text ?? '';
+  return div.innerHTML;
+}
+
+// Item names/descriptions have no length limit, so long ones are cut short
+// with an ellipsis for the summary view — the full text is still available
+// via the element's title attribute (hover to read it).
+function truncateText(text, maxLength = 90) {
+  if (!text) return '';
+  const trimmed = text.toString().trim();
+  return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength).trimEnd()}…` : trimmed;
+}
+
 // Strips thousands separators back out so the text can be parsed as a number.
 function parseFormattedNumber(value) {
   const number = parseFloat((value || '').toString().replace(/,/g, ''));
@@ -976,6 +994,21 @@ function showSection(section) {
   if (section) section.style.display = 'block';
 }
 
+// Short human-readable "X ago" for a timestamp, falling back to a plain
+// date once it's far enough in the past that "ago" stops being useful.
+function formatRelativeTime(dateString) {
+  if (!dateString) return 'Never';
+  const diffMs = Date.now() - new Date(dateString).getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  return new Date(dateString).toLocaleDateString();
+}
+
 function statTile(icon, value, label) {
   return `
     <div class="stat-tile">
@@ -988,26 +1021,51 @@ function statTile(icon, value, label) {
   `;
 }
 
-function renderDashboardStats(clients, quotations) {
-  const totalItems = quotations.reduce((sum, q) => sum + Number(q.item_count || 0), 0);
-  const totalQuoted = quotations.reduce((sum, q) => sum + Number(q.grand_total || 0), 0);
+// Usage stats (how often the system is used, when it was last used) rather
+// than financial totals — those already live on the Quotations list, and
+// this is meant to help track adoption, not restate the cost sheet.
+function renderDashboardStats(quotations, usageStats) {
+  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const quotationsThisWeek = quotations.filter(q => new Date(q.created_at).getTime() >= oneWeekAgo).length;
+  const stats = usageStats || {};
 
   dashboardStats.innerHTML = [
-    statTile('bi-people-fill', clients.length.toLocaleString(), 'Clients in system'),
-    statTile('bi-file-earmark-text-fill', quotations.length.toLocaleString(), 'Quotations'),
-    statTile('bi-journal-text', totalItems.toLocaleString(), 'Jobs entered'),
-    statTile('bi-cash-stack', `UGX ${formatDisplayAmount(totalQuoted)}`, 'Total quoted value')
+    statTile(
+      'bi-clock-history',
+      formatRelativeTime(stats.last_login_at),
+      stats.last_login_by ? `Last login — by ${stats.last_login_by}` : 'Last login'
+    ),
+    statTile('bi-box-arrow-in-right', (stats.logins_this_week || 0).toLocaleString(), 'Logins this week'),
+    statTile('bi-calendar-check', (stats.active_days_this_month || 0).toLocaleString(), 'Active days this month'),
+    statTile('bi-journal-plus', quotationsThisWeek.toLocaleString(), 'Quotations created this week')
   ].join('');
+}
+
+// A quiet fetch for the dashboard's usage-stats tile — deliberately bypasses
+// apiRequest's error toast, since this one non-critical widget failing
+// shouldn't pop an error banner every time the home page loads.
+async function fetchUsageStats() {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_BASE}/usage-stats`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.error('Failed to load usage stats:', error);
+    return null;
+  }
 }
 
 async function displayJobSummary() {
   try {
-    const [clients, quotations] = await Promise.all([
-      apiRequest('/clients'),
-      apiRequest('/quotations')
+    const [quotations, usageStats] = await Promise.all([
+      apiRequest('/quotations'),
+      fetchUsageStats()
     ]);
 
-    renderDashboardStats(clients, quotations);
+    renderDashboardStats(quotations, usageStats);
 
     jobSummaryContainer.innerHTML = '';
     if (quotations.length === 0) {
@@ -1728,6 +1786,28 @@ async function addCalculatedItemToQuotation(quotationId, clientId) {
   showStatus(`Adding a fully-costed item to Quotation #${quotationId}`);
 }
 
+// Confirms, deletes the item, and refreshes the quotations list. The
+// deletion itself is logged server-side (job_deletions) for tracking.
+async function deleteJob(jobId) {
+  const job = jobsById[jobId];
+  const label = job && job.name ? `"${job.name}"` : 'this item';
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    await apiRequest(`/jobs/${jobId}`, { method: 'DELETE' });
+    showStatus('Item deleted successfully');
+    const quotations = await apiRequest('/quotations');
+    displayJobs(quotations);
+    if (homeSection.style.display !== 'none') {
+      displayJobSummary();
+    }
+  } catch (error) {
+    // Error already shown by apiRequest
+  }
+}
+
 function handleJobCardClick(e) {
   const loadBtn = e.target.closest('.load-job-btn');
   const printBtn = e.target.closest('.print-quotation-btn');
@@ -1736,6 +1816,7 @@ function handleJobCardClick(e) {
   const toggleItemsBtn = e.target.closest('.toggle-quotation-items-btn');
   const editBtn = e.target.closest('.rename-quotation-btn');
   const costSheetBtn = e.target.closest('.cost-sheet-btn');
+  const deleteBtn = e.target.closest('.delete-job-btn');
 
   if (loadBtn) {
     editJob(loadBtn.dataset.jobId);
@@ -1751,6 +1832,8 @@ function handleJobCardClick(e) {
     openEditQuotationModal(editBtn);
   } else if (costSheetBtn) {
     downloadCostSheet(costSheetBtn.dataset.jobId);
+  } else if (deleteBtn) {
+    deleteJob(deleteBtn.dataset.jobId);
   }
 }
 
@@ -2395,34 +2478,64 @@ const quotationsById = {};
 
 function renderQuotationItemRow(job) {
   jobsById[job.id] = job;
+  const fullName = (job.name || '').toString();
   return `
     <div class="quotation-item-row">
-      <div class="quotation-item-main">
-        <strong>${job.name}</strong>${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}
-        <span class="quotation-item-status">${job.status}</span>
-      </div>
-      <div class="quotation-item-details">
-        <span>Qty: ${job.quantity}</span>
-        ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${formatDisplayAmount(job.fixed_price)} (${job.vat_option === 'inclusive' ? 'VAT incl.' : '+VAT'})</span>` : ''}
-        ${job.description ? `<span>${job.description}</span>` : ''}
+      <div class="quotation-item-content">
+        <div class="quotation-item-main">
+          <strong title="${escapeHtml(fullName)}">${escapeHtml(truncateText(fullName, 60))}</strong>${job.pricing_mode === 'fixed' ? ' <span class="badge-fixed">Fixed Price</span>' : ''}
+          <span class="quotation-item-status">${job.status}</span>
+        </div>
+        <div class="quotation-item-details">
+          <span>Qty: ${job.quantity}</span>
+          ${job.pricing_mode === 'fixed' ? `<span>Unit Price: UGX ${formatDisplayAmount(job.fixed_price)} (${job.vat_option === 'inclusive' ? 'VAT incl.' : '+VAT'})</span>` : ''}
+          ${job.description ? `<span title="${escapeHtml(job.description)}">${escapeHtml(truncateText(job.description))}</span>` : ''}
+        </div>
       </div>
       <div class="quotation-item-actions">
-        <button type="button" class="load-job-btn" data-job-id="${job.id}">Edit</button>
-        <button type="button" class="cost-sheet-btn" data-job-id="${job.id}">Cost Sheet</button>
+        <button type="button" class="icon-action edit-action load-job-btn" data-job-id="${job.id}" title="Edit item" aria-label="Edit item"><i class="bi bi-pencil-square"></i></button>
+        <button type="button" class="icon-action download-action cost-sheet-btn" data-job-id="${job.id}" title="Download cost sheet" aria-label="Download cost sheet"><i class="bi bi-receipt"></i></button>
+        <button type="button" class="icon-action delete-action delete-job-btn" data-job-id="${job.id}" title="Delete item" aria-label="Delete item"><i class="bi bi-trash3"></i></button>
       </div>
     </div>
   `;
+}
+
+// Icon + tooltip swap when items are shown/hidden, since the button no
+// longer carries visible text to update.
+function setToggleItemsButtonState(button, isExpanded) {
+  const icon = button.querySelector('i');
+  if (icon) icon.className = isExpanded ? 'bi bi-eye-slash-fill' : 'bi bi-eye-fill';
+  const label = isExpanded ? 'Hide items' : 'View items';
+  button.title = label;
+  button.setAttribute('aria-label', label);
 }
 
 async function toggleQuotationItems(button) {
   const quotationId = button.dataset.quotationId;
   const card = button.closest('.client-card');
   const itemsContainer = card.querySelector('[data-items-container]');
-
   const isOpen = itemsContainer.style.display !== 'none';
+
+  // Accordion: expanding one quotation's items auto-collapses whichever
+  // other one was open in this same list, instead of letting several stack
+  // up at once.
+  const container = card.parentElement;
+  if (container) {
+    container.querySelectorAll('.client-card').forEach(otherCard => {
+      if (otherCard === card) return;
+      const otherItems = otherCard.querySelector('[data-items-container]');
+      const otherToggleBtn = otherCard.querySelector('.toggle-quotation-items-btn');
+      if (otherItems && otherItems.style.display !== 'none') {
+        otherItems.style.display = 'none';
+        if (otherToggleBtn) setToggleItemsButtonState(otherToggleBtn, false);
+      }
+    });
+  }
+
   if (isOpen) {
     itemsContainer.style.display = 'none';
-    button.textContent = 'View Items';
+    setToggleItemsButtonState(button, false);
     return;
   }
 
@@ -2440,7 +2553,7 @@ async function toggleQuotationItems(button) {
   } else {
     itemsContainer.style.display = 'block';
   }
-  button.textContent = 'Hide Items';
+  setToggleItemsButtonState(button, true);
 }
 
 function renderQuotationTitleRow(titleRow, quotation) {
@@ -2560,10 +2673,10 @@ function renderQuotationSummaryCard(quotation) {
     </div>
     <div class="quotation-items-list" data-items-container style="display:none;"></div>
     <div class="card-actions">
-      <button type="button" class="toggle-quotation-items-btn" data-quotation-id="${quotation.id}">View Items</button>
-      <button type="button" class="print-quotation-btn" data-quotation-id="${quotation.id}">Quotation</button>
-      <button type="button" class="add-fixed-item-btn" data-quotation-id="${quotation.id}">+ Fixed Item</button>
-      <button type="button" class="add-calc-item-btn" data-quotation-id="${quotation.id}" data-client-id="${quotation.client_id}">+ Costed Item</button>
+      <button type="button" class="icon-action view-action toggle-quotation-items-btn" data-quotation-id="${quotation.id}" title="View items" aria-label="View items"><i class="bi bi-eye-fill"></i></button>
+      <button type="button" class="icon-action download-action print-quotation-btn" data-quotation-id="${quotation.id}" title="Print / download quotation" aria-label="Print or download quotation"><i class="bi bi-file-earmark-pdf-fill"></i></button>
+      <button type="button" class="icon-action add-action add-fixed-item-btn" data-quotation-id="${quotation.id}" title="Add fixed-price item" aria-label="Add fixed-price item"><i class="bi bi-lightning-charge-fill"></i></button>
+      <button type="button" class="icon-action add-action add-calc-item-btn" data-quotation-id="${quotation.id}" data-client-id="${quotation.client_id}" title="Add fully-costed item" aria-label="Add fully-costed item"><i class="bi bi-calculator-fill"></i></button>
     </div>
   `;
 

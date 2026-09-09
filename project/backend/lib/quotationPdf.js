@@ -418,12 +418,13 @@ function drawQuotationPdf(doc, quotationId, data) {
     cursorY += rowHeight;
   });
 
-  // Totals + footer (validity note, totals boxes, delivery/terms/special
-  // conditions, signature, costed-by) are one closing block — if the whole
-  // thing can't fit under the last item row, it starts fresh on a new page
-  // rather than being cut across the page boundary partway through.
-  const TRAILING_BLOCK_HEIGHT = 335;
-  if (cursorY + TRAILING_BLOCK_HEIGHT > pageBottomLimit) {
+  // The totals box (validity note + TOTAL GOODS/VAT/TOTAL) stays with the
+  // item table whenever it fits — only the longer footer below it (Delivery
+  // onward: terms, special conditions, signature, costed-by) moves to a
+  // fresh page on its own if there isn't room, rather than dragging the
+  // totals along with it unnecessarily.
+  const TOTALS_BLOCK_HEIGHT = 115;
+  if (cursorY + TOTALS_BLOCK_HEIGHT > pageBottomLimit) {
     doc.addPage();
     doc.fillColor('black');
     cursorY = 40;
@@ -455,7 +456,16 @@ function drawQuotationPdf(doc, quotationId, data) {
     doc.font('Helvetica').fontSize(12);
   });
 
-  const footerTop = totalsTop + 118;
+  // The footer (Delivery through the "Costed by" line) is its own atomic
+  // block — pushed to a fresh page as a whole if it can't fit below the
+  // totals box, instead of splitting partway through.
+  const FOOTER_BLOCK_HEIGHT = 180;
+  let footerTop = totalsTop + 118;
+  if (footerTop + FOOTER_BLOCK_HEIGHT > pageBottomLimit) {
+    doc.addPage();
+    doc.fillColor('black');
+    footerTop = 40;
+  }
   doc.font('Helvetica').fontSize(11);
 
   // Blank space between the label and the fixed trailing phrase is where the

@@ -1,8 +1,20 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const pool = require('../server').pool;
 
 const router = express.Router();
+
+// Records a successful login so the dashboard can show real usage stats
+// (how often the system is used, when it was last used). Never blocks or
+// fails the login itself if this insert has trouble.
+async function recordLoginEvent(userId) {
+  try {
+    await pool.query('INSERT INTO login_events (user_id) VALUES ($1)', [userId]);
+  } catch (error) {
+    console.error('Failed to record login event:', error.message);
+  }
+}
 
 function getJwtSecret() {
   if (!process.env.JWT_SECRET) {
@@ -29,6 +41,8 @@ router.post('/login', async (req, res) => {
     if (!isValidPassword) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
+    await recordLoginEvent(user.id);
 
     // Create JWT token
     const token = jwt.sign(

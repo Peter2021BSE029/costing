@@ -2,6 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../server').pool;
+const { authenticateToken } = require('./auth');
 
 // Get all jobs with client info
 router.get('/', async (req, res) => {
@@ -116,6 +117,45 @@ router.get('/:id', async (req, res) => {
     res.json(job);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a job (line item), whether calculated or fixed-price. Logged to
+// job_deletions first (job details snapshotted, since the row itself won't
+// exist afterward) so a deletion can always be traced back to who did it.
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const jobResult = await client.query(`
+      SELECT j.id, j.name, j.quotation_id, c.name as client_name
+      FROM jobs j JOIN clients c ON j.client_id = c.id
+      WHERE j.id = $1
+    `, [id]);
+
+    if (jobResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const job = jobResult.rows[0];
+    await client.query(
+      'INSERT INTO job_deletions (job_id, job_name, quotation_id, client_name, deleted_by) VALUES ($1, $2, $3, $4, $5)',
+      [job.id, job.name, job.quotation_id, job.client_name, req.user.id]
+    );
+    await client.query('DELETE FROM jobs WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+    res.json({ message: 'Job deleted successfully', id: Number(id) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[JOBS] Delete error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 

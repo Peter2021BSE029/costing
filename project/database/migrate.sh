@@ -33,6 +33,8 @@ MIGRATIONS=(
   "add_user_full_name.sql"
   "add_created_by.sql"
   "add_costing_agent_and_widen_job_name.sql"
+  "add_login_events.sql"
+  "add_job_deletions.sql"
 )
 
 for migration in "${MIGRATIONS[@]}"; do
